@@ -14,7 +14,7 @@ on:
       restream_key:
         description: 'مفتاح بث ريستريم'
         required: false
-        default: 're_12394050_eventb0c61bd69bcd4207a19d91e5f4a74f69'
+        default: 're_12416925_event6f6e2607a46347b59efab0c722ed3e53'
       destination:
         description: 'وجهة البث (youtube, restream, both)'
         required: true
@@ -62,7 +62,7 @@ jobs:
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,ABO_KHRBAA,iMonkey_D,FHLWY,aymnalsatam,IB6H' }}
           YOUTUBE_KEY: ${{ github.event.inputs.youtube_key || '' }}
-          RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12394050_eventb0c61bd69bcd4207a19d91e5f4a74f69' }}
+          RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
           STREAM_DEST: ${{ github.event.inputs.destination || 'restream' }}
           STREAM_QUALITY: ${{ github.event.inputs.quality || 'best' }}
         run: |
