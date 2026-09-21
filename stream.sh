@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - يعتمد بالكامل على متغيرات البيئة القادمة من YAML
+# نظام البث الذكي 24/7 - النسخة المحسنة للأداء العالي (بدون تقطيع)
 # ==============================================================================
 
-# قراءة المفاتيح والخيارات الممررة من ملف الـ YAML مباشرة
 RESTREAM_KEY="${RESTREAM_KEY:-}"
 YOUTUBE_KEY="${YOUTUBE_KEY:-}"
 QUALITY="${STREAM_QUALITY:-best}"
@@ -14,7 +13,6 @@ DEST="${STREAM_DEST:-restream}"
 if [[ "$YOUTUBE_KEY" == "X" || "$YOUTUBE_KEY" == "x" ]]; then YOUTUBE_KEY=""; fi
 if [[ "$RESTREAM_KEY" == "X" || "$RESTREAM_KEY" == "x" ]]; then RESTREAM_KEY=""; fi
 
-# التحقق من وجود قائمة الستريمرز الممررة وتحويلها لمصفوفة
 if [ -z "$STREAMERS_LIST" ]; then
     echo "❌ خطأ: لم يتم جلب أي قائمة ستريمرز من ملف الـ YAML!"
     exit 1
@@ -22,7 +20,6 @@ fi
 
 IFS=',' read -r -a STREAMERS_RANK <<< "$STREAMERS_LIST"
 
-# تحديد الخط المناسب للعربية
 if fc-list : family | grep -qi "Noto Naskh Arabic"; then
     FONT_NAME="Noto Naskh Arabic"
 elif fc-list : family | grep -qi "Scheherazade"; then
@@ -34,6 +31,7 @@ fi
 STREAM_PID=""
 CURRENT_MODE="NONE"
 CURRENT_ACTIVE_STREAMER=""
+CURRENT_ACTIVE_INDEX=-1
 
 cleanup() {
     echo "🧹 إيقاف عمليات البث..."
@@ -84,7 +82,7 @@ start_standby_stream() {
     generate_initial_ass
     stop_stream
 
-    echo "⏳ بدء بث شاشة الانتظار (جميع الستريمرز أوفلاين)..."
+    echo "⏳ بدء بث شاشة الانتظار..."
     OUTPUTS=$(get_outputs)
 
     ffmpeg -hide_banner -loglevel error -nostdin \
@@ -92,7 +90,7 @@ start_standby_stream() {
       -f lavfi -i anullsrc=r=44100:cl=stereo \
       -map 0:v:0 -map 1:a:0 \
       -vf "ass=/tmp/initial_standby.ass" \
-      -c:v libx264 -preset superfast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 3500k \
+      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 2500k \
       -c:a aac -b:a 128k -ar 44100 \
       -flvflags no_duration_filesize \
       $OUTPUTS >/tmp/ffmpeg.log 2>&1 &
@@ -103,18 +101,19 @@ start_live_stream() {
     local M3U8="$1"
     local STREAMER_NAME="$2"
     stop_stream
-    echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (الأعلى أولوية حالياً)..."
+    echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (بأعلى سلاسة وبدون تقطيع)..."
     OUTPUTS=$(get_outputs)
 
-    # تطبيق فلاتر تحسين الحدة والوضوح والتباين بـ 60 فريم
+    # معالجة جودة الألوان والحدة مع خفض خفيف لاستهلاك المعالج بمنع التقطيع
     ffmpeg -hide_banner -loglevel error -nostdin \
       -headers "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+      -analyzeduration 2000000 -probesize 2000000 \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
-      -fflags +genpts+discardcorrupt -i "$M3U8" \
-      -vf "fps=60,unsharp=3:3:0.8:3:3:0.0,eq=contrast=1.12:saturation=1.2" \
-      -c:v libx264 -preset superfast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 \
-      -b:v 6000k -maxrate 6000k -bufsize 12000k \
-      -c:a aac -b:a 160k -ar 44100 \
+      -fflags +genpts+discardcorrupt+nobuffer -i "$M3U8" \
+      -vf "unsharp=3:3:0.6:3:3:0.0,eq=contrast=1.1:saturation=1.18" \
+      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 \
+      -b:v 5000k -maxrate 5000k -bufsize 10000k \
+      -c:a aac -b:a 128k -ar 44100 \
       -flvflags no_duration_filesize \
       $OUTPUTS >/tmp/ffmpeg.log 2>&1 &
     STREAM_PID=$!
@@ -128,18 +127,25 @@ while true; do
     FOUND_LIVE=false
     SELECTED_STREAMER=""
     SELECTED_M3U8=""
+    SELECTED_INDEX=-1
 
-    for STREAMER in "${STREAMERS_RANK[@]}"; do
-        # إزالة أي مسافات فارغة غير مقصودة حول اسم اليوزر
-        STREAMER=$(echo "$STREAMER" | xargs)
+    # تحسين الفحص: إذا كان الستريمر الحالي يبث وهو رقم 0 (drb7h - الأهم)، نفحصه هو فقط دون الدوران على الـ 14 الآخرين
+    CHECK_LIMIT=${#STREAMERS_RANK[@]}
+    if [ "$CURRENT_MODE" == "LIVE" ] && [ "$CURRENT_ACTIVE_INDEX" -ge 0 ]; then
+        CHECK_LIMIT=$((CURRENT_ACTIVE_INDEX + 1))
+    fi
+
+    for ((i=0; i<CHECK_LIMIT; i++)); do
+        STREAMER=$(echo "${STREAMERS_RANK[$i]}" | xargs)
         [ -z "$STREAMER" ] && continue
 
-        M3U8=$(streamlink --http-header "User-Agent=$UA" --hls-live-edge 3 --stream-timeout 10 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
+        M3U8=$(streamlink --http-header "User-Agent=$UA" --hls-live-edge 3 --stream-timeout 8 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
 
         if [ -n "$M3U8" ]; then
             FOUND_LIVE=true
             SELECTED_STREAMER="$STREAMER"
             SELECTED_M3U8="$M3U8"
+            SELECTED_INDEX=$i
             break
         fi
     done
@@ -149,6 +155,7 @@ while true; do
             echo "🎯 التحويل للستريمر الأعلى أولوية المتاح: $SELECTED_STREAMER"
             start_live_stream "$SELECTED_M3U8" "$SELECTED_STREAMER"
             CURRENT_ACTIVE_STREAMER="$SELECTED_STREAMER"
+            CURRENT_ACTIVE_INDEX=$SELECTED_INDEX
             CURRENT_MODE="LIVE"
         fi
     else
@@ -156,10 +163,10 @@ while true; do
             echo "⏳ لا يوجد أي ستريمر متصل من القائمة.. التحويل لشاشة الانتظار..."
             start_standby_stream
             CURRENT_ACTIVE_STREAMER=""
+            CURRENT_ACTIVE_INDEX=-1
             CURRENT_MODE="STANDBY"
         fi
     fi
 
     sleep 15
 done
- 
