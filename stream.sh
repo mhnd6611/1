@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - النسخة المحسنة للأداء العالي (بدون تقطيع)
+# نظام البث الذكي 24/7 - نسخة النقل المباشر (Stream Copy - بدون معالجة أو تقطيع)
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -101,19 +101,17 @@ start_live_stream() {
     local M3U8="$1"
     local STREAMER_NAME="$2"
     stop_stream
-    echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (بأعلى سلاسة وبدون تقطيع)..."
+    echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (نقل مباشر بدون إعادة ترميز أو فلاتر)..."
     OUTPUTS=$(get_outputs)
 
-    # معالجة جودة الألوان والحدة مع خفض خفيف لاستهلاك المعالج بمنع التقطيع
+    # النقل المباشر الخام بدون أي فلاتر أو ضغط معالج
     ffmpeg -hide_banner -loglevel error -nostdin \
       -headers "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
       -analyzeduration 2000000 -probesize 2000000 \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
-      -fflags +genpts+discardcorrupt+nobuffer -i "$M3U8" \
-      -vf "unsharp=3:3:0.6:3:3:0.0,eq=contrast=1.1:saturation=1.18" \
-      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 \
-      -b:v 5000k -maxrate 5000k -bufsize 10000k \
-      -c:a aac -b:a 128k -ar 44100 \
+      -i "$M3U8" \
+      -c:v copy -c:a copy \
+      -bsf:a aac_adtstoasc \
       -flvflags no_duration_filesize \
       $OUTPUTS >/tmp/ffmpeg.log 2>&1 &
     STREAM_PID=$!
@@ -129,7 +127,6 @@ while true; do
     SELECTED_M3U8=""
     SELECTED_INDEX=-1
 
-    # تحسين الفحص: إذا كان الستريمر الحالي يبث وهو رقم 0 (drb7h - الأهم)، نفحصه هو فقط دون الدوران على الـ 14 الآخرين
     CHECK_LIMIT=${#STREAMERS_RANK[@]}
     if [ "$CURRENT_MODE" == "LIVE" ] && [ "$CURRENT_ACTIVE_INDEX" -ge 0 ]; then
         CHECK_LIMIT=$((CURRENT_ACTIVE_INDEX + 1))
