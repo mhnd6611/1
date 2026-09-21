@@ -1,0 +1,70 @@
+name: 24/7 Master Multi-Streamer Broadcast
+
+on:
+  workflow_dispatch:
+    inputs:
+      streamers_list:
+        description: 'قائمة الستريمرز مرتبة حسب الأولوية (مفصولة بفاصلة)'
+        required: true
+        default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,ABO_KHRBAA,iMonkey_D,FHLWY,aymnalsatam,IB6H'
+      youtube_key:
+        description: 'مفتاح بث يوتيوب'
+        required: false
+        default: ''
+      restream_key:
+        description: 'مفتاح بث ريستريم'
+        required: false
+        default: 're_12394050_eventb0c61bd69bcd4207a19d91e5f4a74f69'
+      destination:
+        description: 'وجهة البث (youtube, restream, both)'
+        required: true
+        default: 'restream'
+      quality:
+        description: 'جودة البث'
+        required: true
+        default: 'best'
+  schedule:
+    # تشغيل تلقائي كل 5 ساعات
+    - cron: '0 */5 * * *'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  broadcaster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+
+    steps:
+      - name: جلب ملفات المستودع
+        uses: actions/checkout@v3
+
+      - name: تثبيت FFmpeg و Streamlink والخطوط والمكتبات
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg python3-pip fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
+          sudo pip3 install --upgrade streamlink
+          sudo fc-cache -f -v
+
+      - name: إغلاق الرون القديم (بعد التثبيت مباشرة وقبل بدء البث)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_RUN_ID="${{ github.run_id }}"
+          OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" | grep -v "$CURRENT_RUN_ID" || true)
+          for RUN_ID in $OLD_RUNS; do
+            echo "🛑 إيقاف الرون القديم رقم: $RUN_ID"
+            gh run cancel "$RUN_ID" || true
+          done
+
+      - name: تشغيل سكربت البث الشامل
+        env:
+          STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,ABO_KHRBAA,iMonkey_D,FHLWY,aymnalsatam,IB6H' }}
+          YOUTUBE_KEY: ${{ github.event.inputs.youtube_key || '' }}
+          RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12394050_eventb0c61bd69bcd4207a19d91e5f4a74f69' }}
+          STREAM_DEST: ${{ github.event.inputs.destination || 'restream' }}
+          STREAM_QUALITY: ${{ github.event.inputs.quality || 'best' }}
+        run: |
+          chmod +x stream.sh
+          ./stream.sh
