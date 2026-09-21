@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - نسخة النقل المباشر (Stream Copy - بدون معالجة أو تقطيع)
+# نظام البث الذكي 24/7 - البث المتواصل (Seamless Stream - بدون فتح بث جديد)
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -28,25 +28,25 @@ else
     FONT_NAME="Sans"
 fi
 
-STREAM_PID=""
+PIPE_PATH="/tmp/live_stream_pipe"
+rm -f "$PIPE_PATH"
+mkfifo "$PIPE_PATH"
+
+FFMPEG_PID=""
+INPUT_PID=""
 CURRENT_MODE="NONE"
 CURRENT_ACTIVE_STREAMER=""
 CURRENT_ACTIVE_INDEX=-1
 
 cleanup() {
-    echo "🧹 إيقاف عمليات البث..."
+    echo "🧹 إيقاف جميع العمليات..."
     trap - EXIT INT TERM
-    [ -n "$STREAM_PID" ] && kill -9 "$STREAM_PID" 2>/dev/null
+    [ -n "$INPUT_PID" ] && kill -9 "$INPUT_PID" 2>/dev/null
+    [ -n "$FFMPEG_PID" ] && kill -9 "$FFMPEG_PID" 2>/dev/null
+    rm -f "$PIPE_PATH"
     exit 0
 }
 trap cleanup EXIT INT TERM
-
-stop_stream() {
-    if [ -n "$STREAM_PID" ]; then
-        kill -9 "$STREAM_PID" 2>/dev/null
-        STREAM_PID=""
-    fi
-}
 
 get_outputs() {
     if [ "$DEST" == "youtube" ]; then
@@ -74,17 +74,33 @@ Style: Subtitle,$FONT_NAME,40,&H00F755A8,&H00000000,&H00000000,&H80000000,-1,0,0
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,9:59:59.99,Title,,0,0,0,,{\fad(600,600)}لم يبدأ البث المباشر بعد...
-Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\fad(600,600)}جاري انتظار قائمة الستريمرز المحددة
+Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\fad(600,600)}جاري انتظار دخول أحد الستريمرز في القائمة
 EOF
 }
 
-start_standby_stream() {
-    generate_initial_ass
-    stop_stream
+generate_initial_ass
 
-    echo "⏳ بدء بث شاشة الانتظار..."
-    OUTPUTS=$(get_outputs)
+# 1. إطلاق عملية FFmpeg الرئيسية الدائمة نحو الخادم (لا تتوقف إطلاقاً)
+OUTPUTS=$(get_outputs)
+ffmpeg -hide_banner -loglevel error -nostdin \
+  -re -i "$PIPE_PATH" \
+  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 4000k \
+  -c:a aac -b:a 128k -ar 44100 \
+  -flvflags no_duration_filesize \
+  $OUTPUTS >/tmp/ffmpeg_master.log 2>&1 &
+FFMPEG_PID=$!
 
+stop_current_input() {
+    if [ -n "$INPUT_PID" ]; then
+        kill -9 "$INPUT_PID" 2>/dev/null
+        INPUT_PID=""
+    fi
+}
+
+start_standby_feed() {
+    stop_current_input
+    echo "⏳ تحويل التغذية لشاشة الانتظار دون إغلاق البث..."
+    
     ffmpeg -hide_banner -loglevel error -nostdin \
       -re -f lavfi -i color=c=0x140024:s=1920x1080:r=60 \
       -f lavfi -i anullsrc=r=44100:cl=stereo \
@@ -92,39 +108,37 @@ start_standby_stream() {
       -vf "ass=/tmp/initial_standby.ass" \
       -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 2500k \
       -c:a aac -b:a 128k -ar 44100 \
-      -flvflags no_duration_filesize \
-      $OUTPUTS >/tmp/ffmpeg.log 2>&1 &
-    STREAM_PID=$!
+      -f mpegts "$PIPE_PATH" >/dev/null 2>&1 &
+    INPUT_PID=$!
 }
 
-start_live_stream() {
-    local M3U8="$1"
-    local STREAMER_NAME="$2"
-    stop_stream
-    echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (نقل مباشر بدون إعادة ترميز أو فلاتر)..."
-    OUTPUTS=$(get_outputs)
+start_live_feed() {
+    local STREAMER_NAME="$1"
+    stop_current_input
+    echo "🔴 تحويل التغذية للستريمر: [$STREAMER_NAME]..."
 
-    # النقل المباشر الخام بدون أي فلاتر أو ضغط معالج
+    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER_NAME" "$QUALITY" --stdout 2>/dev/null | \
     ffmpeg -hide_banner -loglevel error -nostdin \
-      -headers "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
-      -analyzeduration 2000000 -probesize 2000000 \
-      -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
-      -i "$M3U8" \
-      -c:v copy -c:a copy \
-      -bsf:a aac_adtstoasc \
-      -flvflags no_duration_filesize \
-      $OUTPUTS >/tmp/ffmpeg.log 2>&1 &
-    STREAM_PID=$!
+      -i pipe:0 \
+      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 4500k \
+      -c:a aac -b:a 128k -ar 44100 \
+      -f mpegts "$PIPE_PATH" >/dev/null 2>&1 &
+    INPUT_PID=$!
 }
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-sleep 2
+sleep 3
 
 while true; do
+    # التأكد من أن السيرفر الرئيسي ما زال يعالج
+    if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+        echo "❌ خطأ: انقطع الاتصال الرئيسي، إعادة التشغيل..."
+        break
+    fi
+
     FOUND_LIVE=false
     SELECTED_STREAMER=""
-    SELECTED_M3U8=""
     SELECTED_INDEX=-1
 
     CHECK_LIMIT=${#STREAMERS_RANK[@]}
@@ -136,29 +150,26 @@ while true; do
         STREAMER=$(echo "${STREAMERS_RANK[$i]}" | xargs)
         [ -z "$STREAMER" ] && continue
 
-        M3U8=$(streamlink --http-header "User-Agent=$UA" --hls-live-edge 3 --stream-timeout 8 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
+        IS_ON=$(streamlink --http-header "User-Agent=$UA" --stream-timeout 8 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
 
-        if [ -n "$M3U8" ]; then
+        if [ -n "$IS_ON" ]; then
             FOUND_LIVE=true
             SELECTED_STREAMER="$STREAMER"
-            SELECTED_M3U8="$M3U8"
             SELECTED_INDEX=$i
             break
         fi
     done
 
     if [ "$FOUND_LIVE" = true ]; then
-        if [ "$CURRENT_ACTIVE_STREAMER" != "$SELECTED_STREAMER" ] || ! kill -0 "$STREAM_PID" 2>/dev/null; then
-            echo "🎯 التحويل للستريمر الأعلى أولوية المتاح: $SELECTED_STREAMER"
-            start_live_stream "$SELECTED_M3U8" "$SELECTED_STREAMER"
+        if [ "$CURRENT_ACTIVE_STREAMER" != "$SELECTED_STREAMER" ] || ! kill -0 "$INPUT_PID" 2>/dev/null; then
+            start_live_feed "$SELECTED_STREAMER"
             CURRENT_ACTIVE_STREAMER="$SELECTED_STREAMER"
             CURRENT_ACTIVE_INDEX=$SELECTED_INDEX
             CURRENT_MODE="LIVE"
         fi
     else
-        if [ "$CURRENT_MODE" != "STANDBY" ] || ! kill -0 "$STREAM_PID" 2>/dev/null; then
-            echo "⏳ لا يوجد أي ستريمر متصل من القائمة.. التحويل لشاشة الانتظار..."
-            start_standby_stream
+        if [ "$CURRENT_MODE" != "STANDBY" ] || ! kill -0 "$INPUT_PID" 2>/dev/null; then
+            start_standby_feed
             CURRENT_ACTIVE_STREAMER=""
             CURRENT_ACTIVE_INDEX=-1
             CURRENT_MODE="STANDBY"
