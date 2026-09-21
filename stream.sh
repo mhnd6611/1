@@ -1,24 +1,11 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - نظام الأولوية لـ 10 ستريمرز مع فلاتر تحسين الجودة
+# نظام البث الذكي 24/7 - يعتمد بالكامل على متغيرات البيئة القادمة من YAML
 # ==============================================================================
 
-# قائمة الستريمرز مرتبة حسب الأولوية (من الأعلى رقم 1 إلى الأقل رقم 10)
-STREAMERS_RANK=(
-    "drb7h"    # أولوية 1 (الأهم)
-    "S5B"      # أولوية 2
-    "ABO8ALYY"     # أولوية 3
-    "ID7O"   # أولوية 4
-    "F1AISAL"   # أولوية 5
-    "ABO_KHRBAA"   # أولوية 6
-    "iMonkey_D"   # أولوية 7
-    "FHLWY"   # أولوية 8
-    "aymnalsatam"   # أولوية 9
-    "IB6H"  # أولوية 10
-)
-
-RESTREAM_KEY="${RESTREAM_KEY:-re_12394050_eventb0c61bd69bcd4207a19d91e5f4a74f69}"
+# قراءة المفاتيح والخيارات الممررة من ملف الـ YAML مباشرة
+RESTREAM_KEY="${RESTREAM_KEY:-}"
 YOUTUBE_KEY="${YOUTUBE_KEY:-}"
 QUALITY="${STREAM_QUALITY:-best}"
 DEST="${STREAM_DEST:-restream}"
@@ -26,6 +13,14 @@ DEST="${STREAM_DEST:-restream}"
 # تنظيف المفاتيح
 if [[ "$YOUTUBE_KEY" == "X" || "$YOUTUBE_KEY" == "x" ]]; then YOUTUBE_KEY=""; fi
 if [[ "$RESTREAM_KEY" == "X" || "$RESTREAM_KEY" == "x" ]]; then RESTREAM_KEY=""; fi
+
+# التحقق من وجود قائمة الستريمرز الممررة وتحويلها لمصفوفة
+if [ -z "$STREAMERS_LIST" ]; then
+    echo "❌ خطأ: لم يتم جلب أي قائمة ستريمرز من ملف الـ YAML!"
+    exit 1
+fi
+
+IFS=',' read -r -a STREAMERS_RANK <<< "$STREAMERS_LIST"
 
 # تحديد الخط المناسب للعربية
 if fc-list : family | grep -qi "Noto Naskh Arabic"; then
@@ -66,7 +61,6 @@ get_outputs() {
 }
 
 generate_initial_ass() {
-    local TARGET_NAME="$1"
     cat <<EOF > /tmp/initial_standby.ass
 [Script Info]
 ScriptType: v4.00+
@@ -112,7 +106,7 @@ start_live_stream() {
     echo "🔴 بدء البث المباشر للستريمر: [$STREAMER_NAME] (الأعلى أولوية حالياً)..."
     OUTPUTS=$(get_outputs)
 
-    # تطبيق فلاتر الألوان والوضوح و 60 فريم
+    # تطبيق فلاتر تحسين الحدة والوضوح والتباين بـ 60 فريم
     ffmpeg -hide_banner -loglevel error -nostdin \
       -headers "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
@@ -135,23 +129,22 @@ while true; do
     SELECTED_STREAMER=""
     SELECTED_M3U8=""
 
-    # الدوران على الستريمرز حسب ترتيب الأولوية من 1 إلى 10
     for STREAMER in "${STREAMERS_RANK[@]}"; do
+        # إزالة أي مسافات فارغة غير مقصودة حول اسم اليوزر
+        STREAMER=$(echo "$STREAMER" | xargs)
         [ -z "$STREAMER" ] && continue
 
-        # جلب رابط البث
         M3U8=$(streamlink --http-header "User-Agent=$UA" --hls-live-edge 3 --stream-timeout 10 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
 
         if [ -n "$M3U8" ]; then
             FOUND_LIVE=true
             SELECTED_STREAMER="$STREAMER"
             SELECTED_M3U8="$M3U8"
-            break # الخروج فوراً للتمسك بالأعلى أولوية
+            break
         fi
     done
 
     if [ "$FOUND_LIVE" = true ]; then
-        # إذا تغير الستريمر (مثلاً دخل ستريمر بأولوية أعلى) أو توقف البث
         if [ "$CURRENT_ACTIVE_STREAMER" != "$SELECTED_STREAMER" ] || ! kill -0 "$STREAM_PID" 2>/dev/null; then
             echo "🎯 التحويل للستريمر الأعلى أولوية المتاح: $SELECTED_STREAMER"
             start_live_stream "$SELECTED_M3U8" "$SELECTED_STREAMER"
@@ -159,7 +152,6 @@ while true; do
             CURRENT_MODE="LIVE"
         fi
     else
-        # في حال كان جميع الستريمرز الـ 10 أوفلاين
         if [ "$CURRENT_MODE" != "STANDBY" ] || ! kill -0 "$STREAM_PID" 2>/dev/null; then
             echo "⏳ لا يوجد أي ستريمر متصل من القائمة.. التحويل لشاشة الانتظار..."
             start_standby_stream
@@ -168,6 +160,6 @@ while true; do
         fi
     fi
 
-    # فحص القائمة كل 15 ثانية للتحقق من دخول ستريمر ذو أولوية أعلى
     sleep 15
 done
+ 
