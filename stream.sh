@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - البث المتواصل (Seamless Stream - بدون فتح بث جديد)
+# نظام البث الذكي 24/7 - البث المتواصل (Seamless Stream عبر FIFO)
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -80,11 +80,16 @@ EOF
 
 generate_initial_ass
 
-# 1. إطلاق عملية FFmpeg الرئيسية الدائمة نحو الخادم (لا تتوقف إطلاقاً)
+# حيلة لفتح الأنبوب دائماً للقراءة والكتابة حتى لا ينغلق عند التبديل
+tail -f /dev/null > "$PIPE_PATH" &
+KEEP_ALIVE_PID=$!
+
 OUTPUTS=$(get_outputs)
+
+# تشغيل FFmpeg الرئيسي الذي يستقبل من الأنبوب ويبث مباشرة
 ffmpeg -hide_banner -loglevel error -nostdin \
-  -re -i "$PIPE_PATH" \
-  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 4000k \
+  -use_wallclock_as_timestamps 1 -i "$PIPE_PATH" \
+  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 3500k \
   -c:a aac -b:a 128k -ar 44100 \
   -flvflags no_duration_filesize \
   $OUTPUTS >/tmp/ffmpeg_master.log 2>&1 &
@@ -106,8 +111,8 @@ start_standby_feed() {
       -f lavfi -i anullsrc=r=44100:cl=stereo \
       -map 0:v:0 -map 1:a:0 \
       -vf "ass=/tmp/initial_standby.ass" \
-      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 2500k \
-      -c:a aac -b:a 128k -ar 44100 \
+      -c:v mpeg2video -pix_fmt yuv420p -r 60 -b:v 4000k \
+      -c:a mp2 -b:a 128k -ar 44100 \
       -f mpegts "$PIPE_PATH" >/dev/null 2>&1 &
     INPUT_PID=$!
 }
@@ -120,23 +125,17 @@ start_live_feed() {
     streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER_NAME" "$QUALITY" --stdout 2>/dev/null | \
     ffmpeg -hide_banner -loglevel error -nostdin \
       -i pipe:0 \
-      -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 60 -g 120 -b:v 4500k \
-      -c:a aac -b:a 128k -ar 44100 \
+      -c:v mpeg2video -pix_fmt yuv420p -r 60 -b:v 5000k \
+      -c:a mp2 -b:a 128k -ar 44100 \
       -f mpegts "$PIPE_PATH" >/dev/null 2>&1 &
     INPUT_PID=$!
 }
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-sleep 3
+sleep 2
 
 while true; do
-    # التأكد من أن السيرفر الرئيسي ما زال يعالج
-    if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
-        echo "❌ خطأ: انقطع الاتصال الرئيسي، إعادة التشغيل..."
-        break
-    fi
-
     FOUND_LIVE=false
     SELECTED_STREAMER=""
     SELECTED_INDEX=-1
