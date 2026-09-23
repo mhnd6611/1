@@ -6,7 +6,7 @@ on:
       streamers_list:
         description: 'قائمة الستريمرز مرتبة حسب الأولوية (مفصولة بفاصلة)'
         required: true
-        default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,hook,Peerless,abo_khrbaa,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Waakd,okb'
+        default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,hook,Peerless,abo_khrbaa,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Waakd,okb8'
       youtube_key:
         description: 'مفتاح بث يوتيوب'
         required: false
@@ -60,7 +60,7 @@ jobs:
 
       - name: تشغيل سكربت البث الشامل
         env:
-          STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,hook,Peerless,abo_khrbaa,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Waakd,okb' }}
+          STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,hook,Peerless,abo_khrbaa,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Waakd,okb8' }}
           YOUTUBE_KEY: ${{ github.event.inputs.youtube_key || '' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
           STREAM_DEST: ${{ github.event.inputs.destination || 'restream' }}
