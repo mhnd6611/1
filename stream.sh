@@ -1,13 +1,14 @@
 #!/bin/bash
+set +m
 
 # ==============================================================================
 # نظام البث الذكي 24/7 — ريستريم فقط + FIFO (اتصال ثابت لا ينقطع)
+# نسخة نهائية مُنظّفة
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
 QUALITY="${STREAM_QUALITY:-best}"
 
-# تنظيف المفاتيح
 if [[ "$RESTREAM_KEY" == "X" || "$RESTREAM_KEY" == "x" ]]; then RESTREAM_KEY=""; fi
 
 if [ -z "$STREAMERS_LIST" ]; then
@@ -41,8 +42,14 @@ CURRENT_ACTIVE_INDEX=-1
 cleanup() {
     echo "🧹 إيقاف عمليات البث..."
     trap - EXIT INT TERM
-    [ -n "$PRODUCER_PID" ] && kill -9 "$PRODUCER_PID" 2>/dev/null
-    [ -n "$OUTPUT_PID" ] && kill -9 "$OUTPUT_PID" 2>/dev/null
+    if [ -n "$PRODUCER_PID" ]; then
+        kill -9 "$PRODUCER_PID" 2>/dev/null
+        wait "$PRODUCER_PID" 2>/dev/null
+    fi
+    if [ -n "$OUTPUT_PID" ]; then
+        kill -9 "$OUTPUT_PID" 2>/dev/null
+        wait "$OUTPUT_PID" 2>/dev/null
+    fi
     exit 0
 }
 trap cleanup EXIT INT TERM
@@ -51,7 +58,7 @@ trap cleanup EXIT INT TERM
 setup_fifo() {
     rm -f "$FIFO"
     mkfifo "$FIFO"
-    # فتح الـ FIFO للقراءة والكتابة حتى لا يرى القارئ EOF عند موت الكاتب
+    # فتح الـ FIFO للقراءة والكتابة معاً حتى لا يرى القارئ EOF عند موت الكاتب
     exec 3<>"$FIFO"
 }
 
@@ -96,14 +103,17 @@ Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جاري ان
 EOF
 }
 
+# ---------------------- إيقاف المنتج بهدوء ----------------------
 stop_producer() {
     if [ -n "$PRODUCER_PID" ]; then
         kill -9 "$PRODUCER_PID" 2>/dev/null
+        wait "$PRODUCER_PID" 2>/dev/null
         PRODUCER_PID=""
     fi
     sleep 1
 }
 
+# ---------------------- منتج شاشة الانتظار ----------------------
 start_producer_standby() {
     stop_producer
     generate_initial_ass
@@ -119,6 +129,7 @@ start_producer_standby() {
     PRODUCER_PID=$!
 }
 
+# ---------------------- منتج البث المباشر ----------------------
 start_producer_live() {
     local M3U8="$1"
     local STREAMER_NAME="$2"
@@ -133,7 +144,6 @@ start_producer_live() {
       -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
     PRODUCER_PID=$!
 
-    # فحص حياة فعلي بعد الإطلاق
     sleep 6
     if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
         echo "⚠️ فشل تشغيل المنتج للستريمر [$STREAMER_NAME] — URL منتهي أو المصدر غير صالح."
