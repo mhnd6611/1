@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       streamers_list:
-        description: 'قائمة الستريمرز مرتبة حسب الأولوية (مفصولة بفاصلة)'
+        description: 'قائمة الستريمرز'
         required: true
         default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Hook,okb8'
       restream_key:
-        description: 'مفتاح بث ريستريم'
+        description: 'مفتاح ريستريم'
         required: false
         default: 're_12416925_event6f6e2607a46347b59efab0c722ed3e53'
       quality:
@@ -31,27 +31,26 @@ jobs:
       - name: جلب ملفات المستودع
         uses: actions/checkout@v3
 
-      - name: تثبيت FFmpeg و Streamlink والخطوط والمكتبات
+      - name: تثبيت FFmpeg و Streamlink والخطوط
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
           sudo pip3 install --upgrade streamlink
           sudo fc-cache -f -v
 
-      - name: إغلاق الرون القديم (بعد التثبيت مباشرة وقبل بدء البث)
+      - name: إغلاق الرونات القديمة
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT_RUN_ID="${{ github.run_id }}"
           OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" | grep -v "$CURRENT_RUN_ID" || true)
           for RUN_ID in $OLD_RUNS; do
-            echo "🛑 إيقاف الرون القديم رقم: $RUN_ID"
+            echo "🛑 إيقاف الرون: $RUN_ID"
             gh run cancel "$RUN_ID" || true
           done
-          echo "⏳ انتظار تحرير اتصال ريستريم..."
           sleep 25
 
-      - name: تشغيل سكربت البث الشامل
+      - name: تشغيل سكربت البث
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
@@ -59,3 +58,11 @@ jobs:
         run: |
           chmod +x stream.sh
           ./stream.sh
+
+      - name: تشخيص نهائي (عند الإلغاء)
+        if: always()
+        run: |
+          echo "===== OUT LOG ====="
+          tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "لا يوجد"
+          echo "===== IN LOG ====="
+          tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "لا يوجد"
