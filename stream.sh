@@ -2,8 +2,7 @@
 set +m
 
 # ==============================================================================
-# نظام البث الذكي 24/7 — ريستريم فقط + FIFO (اتصال ثابت لا ينقطع)
-# نسخة نهائية مُنظّفة
+# نظام البث الذكي 24/7 — ريستريم فقط + FIFO (اتصال ثابت) + تشخيص حي
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -12,13 +11,16 @@ QUALITY="${STREAM_QUALITY:-best}"
 if [[ "$RESTREAM_KEY" == "X" || "$RESTREAM_KEY" == "x" ]]; then RESTREAM_KEY=""; fi
 
 if [ -z "$STREAMERS_LIST" ]; then
-    echo "❌ خطأ: لم يتم جلب أي قائمة ستريمرز من ملف الـ YAML!"
+    echo "❌ خطأ: لم يتم جلب أي قائمة ستريمرز!"
     exit 1
 fi
 if [ -z "$RESTREAM_KEY" ]; then
     echo "❌ خطأ: مفتاح ريستريم فارغ!"
     exit 1
 fi
+
+# إظهار أول 10 أحرف من المفتاح للتأكد فقط (بدون كشف المفتاح كامل)
+echo "🔑 مفتاح ريستريم يبدأ بـ: ${RESTREAM_KEY:0:10}..."
 
 IFS=',' read -r -a STREAMERS_RANK <<< "$STREAMERS_LIST"
 
@@ -35,37 +37,53 @@ FIFO="/tmp/relay.ts"
 
 OUTPUT_PID=""
 PRODUCER_PID=""
+DIAG_PID=""
 CURRENT_MODE="NONE"
 CURRENT_ACTIVE_STREAMER=""
 CURRENT_ACTIVE_INDEX=-1
 
 cleanup() {
-    echo "🧹 إيقاف عمليات البث..."
+    echo "🧹 إيقاف العمليات..."
     trap - EXIT INT TERM
-    if [ -n "$PRODUCER_PID" ]; then
-        kill -9 "$PRODUCER_PID" 2>/dev/null
-        wait "$PRODUCER_PID" 2>/dev/null
-    fi
-    if [ -n "$OUTPUT_PID" ]; then
-        kill -9 "$OUTPUT_PID" 2>/dev/null
-        wait "$OUTPUT_PID" 2>/dev/null
-    fi
+    for P in "$DIAG_PID" "$PRODUCER_PID" "$OUTPUT_PID"; do
+        [ -n "$P" ] && kill -9 "$P" 2>/dev/null
+        [ -n "$P" ] && wait "$P" 2>/dev/null
+    done
     exit 0
 }
 trap cleanup EXIT INT TERM
 
-# ---------------------- إعداد FIFO ----------------------
+# ---------------------- FIFO ----------------------
 setup_fifo() {
     rm -f "$FIFO"
     mkfifo "$FIFO"
-    # فتح الـ FIFO للقراءة والكتابة معاً حتى لا يرى القارئ EOF عند موت الكاتب
     exec 3<>"$FIFO"
 }
 
-# ---------------------- مخرج ثابت (يشتغل مرة واحدة فقط) ----------------------
+# ---------------------- تشخيص حي ----------------------
+start_diagnostics() {
+    (
+      while true; do
+        sleep 30
+        echo "==================== DIAG $(date -u +%H:%M:%S)Z ===================="
+        echo "--- ffmpeg OUT (آخر 6 أسطر) ---"
+        tail -n 6 /tmp/ffmpeg_out.log 2>/dev/null || echo "(فارغ)"
+        echo "--- ffmpeg IN (آخر 6 أسطر) ---"
+        tail -n 6 /tmp/ffmpeg_in.log 2>/dev/null || echo "(فارغ)"
+        echo "--- حالة العمليات ---"
+        echo "OUT_PID=$OUTPUT_PID حالة: $(kill -0 $OUTPUT_PID 2>/dev/null && echo حي || echo ميت)"
+        echo "PRODUCER_PID=$PRODUCER_PID حالة: $(kill -0 $PRODUCER_PID 2>/dev/null && echo حي || echo ميت)"
+        echo "=============================================================="
+      done
+    ) &
+    DIAG_PID=$!
+}
+
+# ---------------------- المخرج الثابت ----------------------
 start_output() {
     echo "🔗 فتح اتصال ثابت مع ريستريم..."
-    ffmpeg -y -hide_banner -loglevel error -nostdin \
+    # -loglevel verbose مؤقتاً للتشخيص
+    ffmpeg -y -hide_banner -loglevel verbose -nostdin \
       -thread_queue_size 1024 \
       -fflags +genpts+igndts+discardcorrupt \
       -f mpegts -i "$FIFO" \
@@ -75,14 +93,15 @@ start_output() {
     OUTPUT_PID=$!
     sleep 3
     if ! kill -0 "$OUTPUT_PID" 2>/dev/null; then
-        echo "❌ فشل فتح اتصال ريستريم. تحقق من المفتاح."
-        tail -n 20 /tmp/ffmpeg_out.log
+        echo "❌ فشل فتح اتصال ريستريم."
+        echo "--- محتوى log ---"
+        cat /tmp/ffmpeg_out.log
         exit 1
     fi
-    echo "✅ اتصال ريستريم مفتوح (PID: $OUTPUT_PID)"
+    echo "✅ عملية المخرج شغالة (PID: $OUTPUT_PID) — لكن لم نتأكد بعد أن ريستريم يستقبل"
 }
 
-# ---------------------- منتج شاشة الانتظار ----------------------
+# ---------------------- شاشة الانتظار ----------------------
 generate_initial_ass() {
     cat <<EOF > /tmp/initial_standby.ass
 [Script Info]
@@ -103,7 +122,6 @@ Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جاري ان
 EOF
 }
 
-# ---------------------- إيقاف المنتج بهدوء ----------------------
 stop_producer() {
     if [ -n "$PRODUCER_PID" ]; then
         kill -9 "$PRODUCER_PID" 2>/dev/null
@@ -113,12 +131,11 @@ stop_producer() {
     sleep 1
 }
 
-# ---------------------- منتج شاشة الانتظار ----------------------
 start_producer_standby() {
     stop_producer
     generate_initial_ass
     echo "⏳ بدء منتج شاشة الانتظار..."
-    ffmpeg -y -hide_banner -loglevel error -nostdin \
+    ffmpeg -y -hide_banner -loglevel warning -nostdin \
       -re -f lavfi -i color=c=0x140024:s=1920x1080:r=30 \
       -f lavfi -i anullsrc=r=44100:cl=stereo \
       -map 0:v:0 -map 1:a:0 \
@@ -129,13 +146,12 @@ start_producer_standby() {
     PRODUCER_PID=$!
 }
 
-# ---------------------- منتج البث المباشر ----------------------
 start_producer_live() {
     local M3U8="$1"
     local STREAMER_NAME="$2"
     stop_producer
-    echo "🔴 منتج مباشر: [$STREAMER_NAME] (نقل خام بدون إعادة ترميز)..."
-    ffmpeg -y -hide_banner -loglevel error -nostdin \
+    echo "🔴 منتج مباشر: [$STREAMER_NAME]..."
+    ffmpeg -y -hide_banner -loglevel warning -nostdin \
       -headers "User-Agent: $UA" \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
       -analyzeduration 2000000 -probesize 2000000 \
@@ -146,8 +162,9 @@ start_producer_live() {
 
     sleep 6
     if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
-        echo "⚠️ فشل تشغيل المنتج للستريمر [$STREAMER_NAME] — URL منتهي أو المصدر غير صالح."
-        tail -n 15 /tmp/ffmpeg_in.log
+        echo "⚠️ فشل تشغيل المنتج للستريمر [$STREAMER_NAME]."
+        echo "--- محتوى log ---"
+        cat /tmp/ffmpeg_in.log
         return 1
     fi
     return 0
@@ -155,9 +172,12 @@ start_producer_live() {
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-# ---------------------- التشغيل ----------------------
+# ============================================================
+# التشغيل
+# ============================================================
 setup_fifo
 start_output
+start_diagnostics
 start_producer_standby
 CURRENT_MODE="STANDBY"
 
@@ -177,9 +197,7 @@ while true; do
     for ((i=0; i<CHECK_LIMIT; i++)); do
         STREAMER=$(echo "${STREAMERS_RANK[$i]}" | xargs)
         [ -z "$STREAMER" ] && continue
-
         M3U8=$(streamlink --http-header "User-Agent=$UA" --hls-live-edge 3 --stream-timeout 15 "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
-
         if [ -n "$M3U8" ]; then
             FOUND_LIVE=true
             SELECTED_STREAMER="$STREAMER"
@@ -191,16 +209,13 @@ while true; do
 
     if [ "$FOUND_LIVE" = true ]; then
         NEED_SWITCH=false
-        if [ "$CURRENT_MODE" != "LIVE" ]; then
-            NEED_SWITCH=true
-        elif [ "$CURRENT_ACTIVE_STREAMER" != "$SELECTED_STREAMER" ]; then
-            NEED_SWITCH=true
-        elif [ -n "$PRODUCER_PID" ] && ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
-            NEED_SWITCH=true
+        if [ "$CURRENT_MODE" != "LIVE" ]; then NEED_SWITCH=true
+        elif [ "$CURRENT_ACTIVE_STREAMER" != "$SELECTED_STREAMER" ]; then NEED_SWITCH=true
+        elif [ -n "$PRODUCER_PID" ] && ! kill -0 "$PRODUCER_PID" 2>/dev/null; then NEED_SWITCH=true
         fi
 
         if [ "$NEED_SWITCH" = true ]; then
-            echo "🎯 التحويل للستريمر الأعلى أولوية المتاح: $SELECTED_STREAMER"
+            echo "🎯 التحويل للستريمر الأعلى أولوية: $SELECTED_STREAMER"
             if start_producer_live "$SELECTED_M3U8" "$SELECTED_STREAMER"; then
                 CURRENT_ACTIVE_STREAMER="$SELECTED_STREAMER"
                 CURRENT_ACTIVE_INDEX=$SELECTED_INDEX
@@ -216,7 +231,7 @@ while true; do
         fi
     else
         if [ "$CURRENT_MODE" != "STANDBY" ] || [ -z "$PRODUCER_PID" ] || ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
-            echo "⏳ لا يوجد ستريمر متصل.. التحويل لشاشة الانتظار..."
+            echo "⏳ لا يوجد ستريمر متصل.. شاشة الانتظار..."
             start_producer_standby
             CURRENT_MODE="STANDBY"
             CURRENT_ACTIVE_STREAMER=""
