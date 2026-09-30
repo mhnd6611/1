@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# نظام البث الذكي 24/7 - معمارية FIFO النهائية مع التحقق الفعال من تحرير RTMP
+# نظام البث الذكي 24/7 - معمارية FIFO النهائية مع تغذية الأنبوب الفورية
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -51,41 +51,6 @@ stop_producer() {
     fi
 }
 
-# --- 1. عملية الإخراج الدائمة مع حلقة تحقق من تحرير RTMP ---
-start_output_pipeline() {
-    rm -f "$PIPE"; mkfifo "$PIPE"
-    exec 3<> "$PIPE"
-    OUTPUTS=$(get_outputs)
-    
-    local RETRY=0
-    local MAX_RETRIES=10
-    
-    while [ $RETRY -lt $MAX_RETRIES ]; do
-        echo "🔄 محاولة ربط اتصال RTMP (محاولة $((RETRY+1))/$MAX_RETRIES)..."
-        
-        ffmpeg -hide_banner -loglevel warning -nostdin \
-          -fflags +genpts+igndts+discardcorrupt \
-          -f mpegts -i "$PIPE" \
-          -c copy -bsf:a aac_adtstoasc \
-          -flvflags no_duration_filesize -muxdelay 0.1 \
-          $OUTPUTS >/tmp/output.log 2>&1 &
-        OUTPUT_PID=$!
-        
-        sleep 4
-        if kill -0 "$OUTPUT_PID" 2>/dev/null; then
-            echo "✅ تم الاتصال بسيرفر RTMP بنجاح! PID=$OUTPUT_PID"
-            return 0
-        fi
-        
-        echo "⏳ مفتاح RTMP ما زال مشغولاً من السيرفر. المحاولة مجدداً..."
-        RETRY=$((RETRY + 1))
-        sleep 3
-    done
-    
-    echo "❌ فشل الاتصال بـ RTMP بعد عدة محاولات."
-    exit 1
-}
-
 generate_ass() {
     cat <<EOF > /tmp/standby.ass
 [Script Info]
@@ -106,7 +71,7 @@ Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\fad(600,600)}جاري ان�
 EOF
 }
 
-# --- 2. منتج شاشة الانتظار ---
+# --- 1. منتج شاشة الانتظار ---
 start_standby() {
     generate_ass
     stop_producer
@@ -121,7 +86,7 @@ start_standby() {
     PRODUCER_PID=$!
 }
 
-# --- 3. منتج البث الحي (نقل مباشر مع توحيد PIDs) ---
+# --- 2. منتج البث الحي (نقل مباشر مع توحيد PIDs) ---
 start_live() {
     local M3U8="$1"
     local STREAMER="$2"
@@ -136,13 +101,52 @@ start_live() {
     PRODUCER_PID=$!
 }
 
+# --- 3. عملية الإخراج الدائمة مع تغذية الأنبوب بالبيانات ---
+start_output_pipeline() {
+    rm -f "$PIPE"; mkfifo "$PIPE"
+    exec 3<> "$PIPE"
+    OUTPUTS=$(get_outputs)
+    
+    local RETRY=0
+    local MAX_RETRIES=10
+    
+    while [ $RETRY -lt $MAX_RETRIES ]; do
+        echo "🔄 محاولة ربط اتصال RTMP (محاولة $((RETRY+1))/$MAX_RETRIES)..."
+        
+        # 💡 إرسال بيانات أولاً داخل الأنبوب ليتعرف ffmpeg الإخراجي على الترويسات
+        start_standby
+        
+        ffmpeg -hide_banner -loglevel warning -nostdin \
+          -fflags +genpts+igndts+discardcorrupt \
+          -f mpegts -i "$PIPE" \
+          -c copy -bsf:a aac_adtstoasc \
+          -flvflags no_duration_filesize -muxdelay 0.1 \
+          $OUTPUTS >/tmp/output.log 2>&1 &
+        OUTPUT_PID=$!
+        
+        sleep 5
+        if kill -0 "$OUTPUT_PID" 2>/dev/null; then
+            echo "✅ تم الاتصال بسيرفر RTMP بنجاح! PID=$OUTPUT_PID"
+            CURRENT_MODE="STANDBY"
+            return 0
+        fi
+        
+        echo "⚠️ فشلت المحاولة. تفاصيل الخطأ من ffmpeg:"
+        cat /tmp/output.log | tail -n 5
+        
+        stop_producer
+        RETRY=$((RETRY + 1))
+        sleep 3
+    done
+    
+    echo "❌ فشل الاتصال بـ RTMP بعد $MAX_RETRIES محاولات."
+    exit 1
+}
+
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# بدء الـ Pipeline لأول مرة
 start_output_pipeline
-start_standby
-CURRENT_MODE="STANDBY"
-
-sleep 2
 
 while true; do
     # مراقبة الاتصال الرئيسي
@@ -151,7 +155,7 @@ while true; do
         stop_producer
         exec 3>&- 2>/dev/null
         start_output_pipeline
-        CURRENT_MODE="NONE"
+        CURRENT_MODE="STANDBY"
         CURRENT_ACTIVE_STREAMER=""
         CURRENT_ACTIVE_INDEX=-1
     fi
@@ -184,7 +188,6 @@ while true; do
                "https://kick.com/$STREAMER" "$QUALITY" --stream-url 2>/dev/null | grep -m1 "^http")
                
         if [ -n "$M3U8" ]; then
-            # التحقق الفعلي من الكوديك بـ ffprobe (قبول H.264 فقط)
             CODEC=$(timeout 5 ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprintwrappers=1:nokey=1 "$M3U8" 2>/dev/null)
             if [ "$CODEC" == "h264" ]; then
                 FOUND_LIVE=true
