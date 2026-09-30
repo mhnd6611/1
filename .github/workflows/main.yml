@@ -4,29 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       streamers_list:
-        description: 'قائمة الستريمرز مرتبة حسب الأولوية (مفصولة بفاصلة)'
+        description: 'قائمة الستريمرز'
         required: true
         default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Hook,okb8'
       youtube_key:
-        description: 'مفتاح بث يوتيوب'
         required: false
         default: ''
       restream_key:
-        description: 'مفتاح بث ريستريم'
         required: false
         default: 're_12416925_event6f6e2607a46347b59efab0c722ed3e53'
       destination:
-        description: 'وجهة البث (youtube, restream, both)'
         required: true
         default: 'restream'
       quality:
-        description: 'جودة البث'
         required: true
         default: 'best'
   schedule:
-    # تشغيل تلقائي كل 5 ساعات
-    - cron: '0 */5 * * *'
+    - cron: '0 */6 * * *'
 
+# إلغاء concurrency لمنع قتل الرون القديم قبل تجهيز البيئة
 permissions:
   actions: write
   contents: read
@@ -34,31 +30,50 @@ permissions:
 jobs:
   broadcaster:
     runs-on: ubuntu-latest
-    timeout-minutes: 320
+    timeout-minutes: 355
 
     steps:
-      - name: جلب ملفات المستودع
-        uses: actions/checkout@v3
+      - name: جلب الكود
+        uses: actions/checkout@v4
 
-      - name: تثبيت FFmpeg و Streamlink والخطوط والمكتبات
+      - name: تجهيز البيئة السريع (أثناء استمرار البث القديم)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg python3-pip fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
-          sudo pip3 install --upgrade streamlink
-          sudo fc-cache -f -v
+          mkdir -p ~/.local/share/fonts
+          curl -sL -o ~/.local/share/fonts/NotoNaskhArabic-Bold.ttf "https://raw.githubusercontent.com/google/fonts/main/ofl/notonaskharabic/NotoNaskhArabic-Bold.ttf"
+          fc-cache -f
+          python3 -m pip install --no-cache-dir streamlink
 
-      - name: إغلاق الرون القديم (بعد التثبيت مباشرة وقبل بدء البث)
+      - name: إنهاء الرون القديم والانتظار حتى الإغلاق التام
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT_RUN_ID="${{ github.run_id }}"
-          OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" | grep -v "$CURRENT_RUN_ID" || true)
-          for RUN_ID in $OLD_RUNS; do
-            echo "🛑 إيقاف الرون القديم رقم: $RUN_ID"
-            gh run cancel "$RUN_ID" || true
-          done
+          OLD_RUN_ID=$(gh run list --workflow=main.yml --status=in_progress --json databaseId --jq ".[] | select(.databaseId != $CURRENT_RUN_ID) | .databaseId" | head -n 1)
+          
+          if [ -n "$OLD_RUN_ID" ]; then
+            echo "⚡ إرسال أمر الإلغاء للرون القديم: $OLD_RUN_ID"
+            gh run cancel "$OLD_RUN_ID" || true
+            
+            echo "⏳ انتظار انتهاء الرون القديم تماماً..."
+            MAX_WAIT=30
+            WAIT_COUNT=0
+            while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+              STATUS=$(gh run view "$OLD_RUN_ID" --json status -q .status 2>/dev/null || echo "completed")
+              if [ "$STATUS" == "completed" ]; then
+                echo "✅ تم إغلاق الرون القديم بنجاح."
+                break
+              fi
+              sleep 2
+              WAIT_COUNT=$((WAIT_COUNT + 2))
+            done
+            
+            if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+              echo "❌ لم يغلق الرون القديم في الوقت المحدد. إيقاف لمنع تضارب المفاتيح."
+              exit 1
+            fi
+          fi
 
-      - name: تشغيل سكربت البث الشامل
+      - name: تشغيل محرك البث
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           YOUTUBE_KEY: ${{ github.event.inputs.youtube_key || '' }}
