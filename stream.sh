@@ -2,7 +2,8 @@
 set +m
 
 # ==============================================================================
-# نظام البث الذكي 24/7 — ريستريم فقط + FIFO (اتصال ثابت) + تشخيص حي
+# نظام البث الذكي 24/7 — ريستريم فقط + FIFO
+# إصلاح: إعادة ترميز الصوت AAC لضمان ADTS (كيك يبث AAC بدون ADTS)
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -19,7 +20,6 @@ if [ -z "$RESTREAM_KEY" ]; then
     exit 1
 fi
 
-# إظهار أول 10 أحرف من المفتاح للتأكد فقط (بدون كشف المفتاح كامل)
 echo "🔑 مفتاح ريستريم يبدأ بـ: ${RESTREAM_KEY:0:10}..."
 
 IFS=',' read -r -a STREAMERS_RANK <<< "$STREAMERS_LIST"
@@ -37,7 +37,6 @@ FIFO="/tmp/relay.ts"
 
 OUTPUT_PID=""
 PRODUCER_PID=""
-DIAG_PID=""
 CURRENT_MODE="NONE"
 CURRENT_ACTIVE_STREAMER=""
 CURRENT_ACTIVE_INDEX=-1
@@ -45,7 +44,7 @@ CURRENT_ACTIVE_INDEX=-1
 cleanup() {
     echo "🧹 إيقاف العمليات..."
     trap - EXIT INT TERM
-    for P in "$DIAG_PID" "$PRODUCER_PID" "$OUTPUT_PID"; do
+    for P in "$PRODUCER_PID" "$OUTPUT_PID"; do
         [ -n "$P" ] && kill -9 "$P" 2>/dev/null
         [ -n "$P" ] && wait "$P" 2>/dev/null
     done
@@ -53,52 +52,32 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ---------------------- FIFO ----------------------
 setup_fifo() {
     rm -f "$FIFO"
     mkfifo "$FIFO"
     exec 3<>"$FIFO"
 }
 
-# ---------------------- تشخيص حي ----------------------
-start_diagnostics() {
-    (
-      while true; do
-        sleep 30
-        echo "==================== DIAG $(date -u +%H:%M:%S)Z ===================="
-        echo "--- ffmpeg OUT (آخر 6 أسطر) ---"
-        tail -n 6 /tmp/ffmpeg_out.log 2>/dev/null || echo "(فارغ)"
-        echo "--- ffmpeg IN (آخر 6 أسطر) ---"
-        tail -n 6 /tmp/ffmpeg_in.log 2>/dev/null || echo "(فارغ)"
-        echo "--- حالة العمليات ---"
-        echo "OUT_PID=$OUTPUT_PID حالة: $(kill -0 $OUTPUT_PID 2>/dev/null && echo حي || echo ميت)"
-        echo "PRODUCER_PID=$PRODUCER_PID حالة: $(kill -0 $PRODUCER_PID 2>/dev/null && echo حي || echo ميت)"
-        echo "=============================================================="
-      done
-    ) &
-    DIAG_PID=$!
-}
-
 # ---------------------- المخرج الثابت ----------------------
 start_output() {
     echo "🔗 فتح اتصال ثابت مع ريستريم..."
-    # -loglevel verbose مؤقتاً للتشخيص
-    ffmpeg -y -hide_banner -loglevel verbose -nostdin \
+    ffmpeg -y -hide_banner -loglevel warning -nostdin \
       -thread_queue_size 1024 \
       -fflags +genpts+igndts+discardcorrupt \
+      -max_delay 5000000 \
       -f mpegts -i "$FIFO" \
       -c copy \
+      -max_muxing_queue_size 4096 \
       -flvflags no_duration_filesize \
       -f flv "$RESTREAM_URL" >/tmp/ffmpeg_out.log 2>&1 &
     OUTPUT_PID=$!
     sleep 3
     if ! kill -0 "$OUTPUT_PID" 2>/dev/null; then
         echo "❌ فشل فتح اتصال ريستريم."
-        echo "--- محتوى log ---"
         cat /tmp/ffmpeg_out.log
         exit 1
     fi
-    echo "✅ عملية المخرج شغالة (PID: $OUTPUT_PID) — لكن لم نتأكد بعد أن ريستريم يستقبل"
+    echo "✅ عملية المخرج شغالة (PID: $OUTPUT_PID)"
 }
 
 # ---------------------- شاشة الانتظار ----------------------
@@ -141,7 +120,8 @@ start_producer_standby() {
       -map 0:v:0 -map 1:a:0 \
       -vf "ass=/tmp/initial_standby.ass" \
       -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
-      -c:a aac -b:a 128k -ar 44100 \
+      -c:a aac -b:a 128k -ar 44100 -ac 2 \
+      -max_muxing_queue_size 4096 \
       -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
     PRODUCER_PID=$!
 }
@@ -150,20 +130,23 @@ start_producer_live() {
     local M3U8="$1"
     local STREAMER_NAME="$2"
     stop_producer
-    echo "🔴 منتج مباشر: [$STREAMER_NAME]..."
+    echo "🔴 منتج مباشر: [$STREAMER_NAME] — فيديو copy + صوت AAC محوَّل..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
       -headers "User-Agent: $UA" \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
       -analyzeduration 2000000 -probesize 2000000 \
+      -fflags +genpts+igndts \
       -i "$M3U8" \
-      -c:v copy -c:a copy -bsf:a aac_adtstoasc \
+      -c:v copy \
+      -c:a aac -b:a 128k -ar 44100 -ac 2 \
+      -max_muxing_queue_size 4096 \
+      -muxdelay 0.1 -muxpreload 0.1 \
       -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
     PRODUCER_PID=$!
 
     sleep 6
     if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
         echo "⚠️ فشل تشغيل المنتج للستريمر [$STREAMER_NAME]."
-        echo "--- محتوى log ---"
         cat /tmp/ffmpeg_in.log
         return 1
     fi
@@ -173,11 +156,8 @@ start_producer_live() {
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # ============================================================
-# التشغيل
-# ============================================================
 setup_fifo
 start_output
-start_diagnostics
 start_producer_standby
 CURRENT_MODE="STANDBY"
 
