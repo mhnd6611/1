@@ -2,9 +2,41 @@
 set +m
 
 # ==============================================================================
-# نظام البث الذكي 24/7 — ريستريم فقط
-# نسخة نهائية: apt ffmpeg + FIFO + صوت AAC + اتصال أولاً ثم إلغاء
+# ⚙️⚙️⚙️  إعدادات شاشة الانتظار — عدّل هنا فقط  ⚙️⚙️⚙️
 # ==============================================================================
+
+# النص الأول (كبير، أعلى الشاشة)
+STANDBY_TITLE="لم يبدأ البث المباشر بعد..."
+
+# النص الثاني (متوسط، تحت الأول)
+STANDBY_SUBTITLE="جاري انتظار قائمة ستريمرز ريسبكت"
+
+# لو تبغى نص ثالث إضافي، فعّله بـ "yes" واكتبه
+STANDBY_EXTRA_ENABLED="yes"          # "yes" أو "no"
+STANDBY_EXTRA="جار انتظار بث drb7h"  # النص الثالث
+
+# الألوان (BGR بصيغة &HAABBGGRR — رتّب عكسي: BB=أزرق، GG=أخضر، RR=أحمر)
+COLOR_TITLE="&H00FEB4D8"      # لون النص الأول (وردي فاتح)
+COLOR_SUBTITLE="&H00F755A8"   # لون النص الثاني (وردي)
+COLOR_EXTRA="&H00F755A8"      # لون النص الثالث
+
+# لون خلفية الشاشة (hex بترتيب RGB عادي)
+BG_COLOR="0x140024"           # بنفسجي غامق
+
+# أحجام الخطوط
+FONT_SIZE_TITLE=60
+FONT_SIZE_SUBTITLE=40
+FONT_SIZE_EXTRA=40
+
+# مواضع النصوص من أسفل الشاشة (بالبكسل)
+POS_TITLE=420
+POS_SUBTITLE=520
+POS_EXTRA=580
+
+# ==============================================================================
+# نهاية الإعدادات — لا تعدّل تحت هذا السطر إلا إذا كنت تعرف ما تفعل
+# ==============================================================================
+
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
 QUALITY="${STREAM_QUALITY:-best}"
@@ -54,7 +86,6 @@ trap cleanup EXIT INT TERM
 setup_fifo() {
     rm -f "$FIFO"
     mkfifo "$FIFO"
-    # فتح FIFO للقراءة والكتابة حتى لا يرى القارئ EOF عند موت الكاتب
     exec 3<>"$FIFO"
 }
 
@@ -96,8 +127,16 @@ cancel_old_runs() {
     echo "✅ انتهى إلغاء الرنات."
 }
 
-# ---------------------- شاشة الانتظار ----------------------
+# ---------------------- توليد ملف ASS من الإعدادات ----------------------
 generate_ass() {
+    # بناء سطر النص الثالث فقط إذا كان مفعّلاً
+    EXTRA_STYLE_LINE=""
+    EXTRA_EVENT_LINE=""
+    if [ "$STANDBY_EXTRA_ENABLED" == "yes" ]; then
+        EXTRA_STYLE_LINE="Style: Extra,$FONT_NAME,$FONT_SIZE_EXTRA,$COLOR_EXTRA,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,$POS_EXTRA,1"
+        EXTRA_EVENT_LINE="Dialogue: 0,0:00:00.00,9:59:59.99,Extra,,0,0,0,,{\\fad(600,600)}$STANDBY_EXTRA"
+    fi
+
     cat > /tmp/standby.ass <<EOF
 [Script Info]
 ScriptType: v4.00+
@@ -107,16 +146,15 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Title,$FONT_NAME,60,&H00FEB4D8,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,420,1
-Style: Subtitle,$FONT_NAME,40,&H00F755A8,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,520,1
+Style: Title,$FONT_NAME,$FONT_SIZE_TITLE,$COLOR_TITLE,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,$POS_TITLE,1
+Style: Subtitle,$FONT_NAME,$FONT_SIZE_SUBTITLE,$COLOR_SUBTITLE,&H00000000,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,$POS_SUBTITLE,1
+$EXTRA_STYLE_LINE
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,9:59:59.99,Title,,0,0,0,,{\\fad(600,600)}لم يبدأ البث المباشر بعد...
-Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جاري انتظار قائمة الستريمرز المحددة
-
-Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جار انتضار بث دربحه
-EOF
+Dialogue: 0,0:00:00.00,9:59:59.99,Title,,0,0,0,,{\\fad(600,600)}$STANDBY_TITLE
+Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}$STANDBY_SUBTITLE
+$EXTRA_EVENT_LINE
 EOF
 }
 
@@ -134,7 +172,7 @@ start_producer_standby() {
     generate_ass
     echo "⏳ منتج شاشة الانتظار..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-      -re -f lavfi -i color=c=0x140024:s=1920x1080:r=30 \
+      -re -f lavfi -i color=c=${BG_COLOR}:s=1920x1080:r=30 \
       -f lavfi -i anullsrc=r=44100:cl=stereo \
       -map 0:v:0 -map 1:a:0 \
       -vf "ass=/tmp/standby.ass" \
@@ -180,13 +218,11 @@ start_output
 start_producer_standby
 CURRENT_MODE="STANDBY"
 
-# إلغاء الرنات القديمة في الخلفية — لا يعطّل التدفق
 ( cancel_old_runs ) >/tmp/cancel_old.log 2>&1 &
 
 sleep 2
 
 while true; do
-    # فحص حياة المخرج — إذا مات، ننتهي
     if ! kill -0 "$OUTPUT_PID" 2>/dev/null; then
         echo "❌ المخرج توقف — إنهاء."
         exit 1
