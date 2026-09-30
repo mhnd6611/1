@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# نظام البث الذكي 24/7 - نسخة ريستريم فقط + FIFO (اتصال ثابت)
+# نظام البث الذكي 24/7 — ريستريم فقط + FIFO (اتصال ثابت لا ينقطع)
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -55,10 +55,10 @@ setup_fifo() {
     exec 3<>"$FIFO"
 }
 
-# ---------------------- مخرج ثابت (يشتغل مرة واحدة) ----------------------
+# ---------------------- مخرج ثابت (يشتغل مرة واحدة فقط) ----------------------
 start_output() {
     echo "🔗 فتح اتصال ثابت مع ريستريم..."
-    ffmpeg -hide_banner -loglevel error -nostdin \
+    ffmpeg -y -hide_banner -loglevel error -nostdin \
       -thread_queue_size 1024 \
       -fflags +genpts+igndts+discardcorrupt \
       -f mpegts -i "$FIFO" \
@@ -99,10 +99,8 @@ EOF
 stop_producer() {
     if [ -n "$PRODUCER_PID" ]; then
         kill -9 "$PRODUCER_PID" 2>/dev/null
-        wait "$PRODUCER_PID" 2>/dev/null
         PRODUCER_PID=""
     fi
-    # تفريغ الـ FIFO من أي بقايا
     sleep 1
 }
 
@@ -110,7 +108,7 @@ start_producer_standby() {
     stop_producer
     generate_initial_ass
     echo "⏳ بدء منتج شاشة الانتظار..."
-    ffmpeg -hide_banner -loglevel error -nostdin \
+    ffmpeg -y -hide_banner -loglevel error -nostdin \
       -re -f lavfi -i color=c=0x140024:s=1920x1080:r=30 \
       -f lavfi -i anullsrc=r=44100:cl=stereo \
       -map 0:v:0 -map 1:a:0 \
@@ -126,7 +124,7 @@ start_producer_live() {
     local STREAMER_NAME="$2"
     stop_producer
     echo "🔴 منتج مباشر: [$STREAMER_NAME] (نقل خام بدون إعادة ترميز)..."
-    ffmpeg -hide_banner -loglevel error -nostdin \
+    ffmpeg -y -hide_banner -loglevel error -nostdin \
       -headers "User-Agent: $UA" \
       -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
       -analyzeduration 2000000 -probesize 2000000 \
@@ -135,7 +133,7 @@ start_producer_live() {
       -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
     PRODUCER_PID=$!
 
-    # فحص حياة فعلي
+    # فحص حياة فعلي بعد الإطلاق
     sleep 6
     if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
         echo "⚠️ فشل تشغيل المنتج للستريمر [$STREAMER_NAME] — URL منتهي أو المصدر غير صالح."
@@ -182,7 +180,6 @@ while true; do
     done
 
     if [ "$FOUND_LIVE" = true ]; then
-        # هل نحتاج تبديل؟
         NEED_SWITCH=false
         if [ "$CURRENT_MODE" != "LIVE" ]; then
             NEED_SWITCH=true
@@ -199,7 +196,6 @@ while true; do
                 CURRENT_ACTIVE_INDEX=$SELECTED_INDEX
                 CURRENT_MODE="LIVE"
             else
-                # فشل — ارجع للانتظار وحاول بالدورة القادمة
                 if [ "$CURRENT_MODE" != "STANDBY" ]; then
                     start_producer_standby
                     CURRENT_MODE="STANDBY"
