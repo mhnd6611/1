@@ -38,31 +38,29 @@ jobs:
           sudo pip3 install --upgrade streamlink
           sudo fc-cache -f -v
 
-      - name: إغلاق الرونات القديمة
+      - name: جدولة الرن التالي ذاتياً (بعد 5س40د)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CURRENT_RUN_ID="${{ github.run_id }}"
-          OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" | grep -v "$CURRENT_RUN_ID" || true)
-          for RUN_ID in $OLD_RUNS; do
-            echo "🛑 إيقاف الرون: $RUN_ID"
-            gh run cancel "$RUN_ID" || true
-          done
-          sleep 25
+          STREAMERS="${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}"
+          RKEY="${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}"
+          QUAL="${{ github.event.inputs.quality || 'best' }}"
+          setsid nohup bash -c "
+            sleep 20400
+            gh workflow run main.yml --ref '${{ github.ref_name }}' \
+              -f streamers_list='$STREAMERS' \
+              -f restream_key='$RKEY' \
+              -f quality='$QUAL'
+          " >/tmp/self_trigger.log 2>&1 < /dev/null &
+          echo "✅ الرن التالي مجدول بعد 5 ساعات و 40 دقيقة"
 
       - name: تشغيل سكربت البث
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
           STREAM_QUALITY: ${{ github.event.inputs.quality || 'best' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x stream.sh
           ./stream.sh
-
-      - name: تشخيص نهائي (عند الإلغاء)
-        if: always()
-        run: |
-          echo "===== OUT LOG ====="
-          tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "لا يوجد"
-          echo "===== IN LOG ====="
-          tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "لا يوجد"
