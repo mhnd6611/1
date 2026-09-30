@@ -2,8 +2,7 @@
 set +m
 
 # ==============================================================================
-# نظام البث الذكي 24/7 — ريستريم فقط + FIFO
-# إصلاح: إعادة ترميز الصوت AAC لضمان ADTS (كيك يبث AAC بدون ADTS)
+# نظام البث الذكي 24/7 — ريستريم فقط + FIFO + تجدبد ذاتي بدون فجوة
 # ==============================================================================
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -80,6 +79,20 @@ start_output() {
     echo "✅ عملية المخرج شغالة (PID: $OUTPUT_PID)"
 }
 
+# ---------------------- إلغاء الرنات القديمة (بعد الاتصال) ----------------------
+cancel_old_runs() {
+    if [ -z "$GH_TOKEN" ] || [ -z "$GITHUB_RUN_ID" ]; then
+        echo "ℹ️ لا يوجد GH_TOKEN — تخطي إلغاء الرنات القديمة."
+        return 0
+    fi
+    echo "🛑 إلغاء الرنات القديمة (اتصالنا الجديد مضمون الآن)..."
+    OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" 2>/dev/null | grep -v "$GITHUB_RUN_ID" || true)
+    for RUN_ID in $OLD_RUNS; do
+        echo "   إلغاء: $RUN_ID"
+        gh run cancel "$RUN_ID" 2>/dev/null || true
+    done
+}
+
 # ---------------------- شاشة الانتظار ----------------------
 generate_initial_ass() {
     cat <<EOF > /tmp/initial_standby.ass
@@ -97,7 +110,7 @@ Style: Subtitle,$FONT_NAME,40,&H00F755A8,&H00000000,&H00000000,&H80000000,-1,0,0
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,9:59:59.99,Title,,0,0,0,,{\\fad(600,600)}لم يبدأ البث المباشر بعد...
-Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جاري انتظار قائمة الستريمرز المحددة
+Dialogue: 0,0:00:00.00,9:59:59.99,Subtitle,,0,0,0,,{\\fad(600,600)}جاري انتظار قائمة ستريمرز ريسبكت
 EOF
 }
 
@@ -158,6 +171,8 @@ UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Ge
 # ============================================================
 setup_fifo
 start_output
+# المخرج متصل الآن → نلغي الرنات القديمة
+cancel_old_runs
 start_producer_standby
 CURRENT_MODE="STANDBY"
 
