@@ -31,13 +31,48 @@ jobs:
       - name: جلب ملفات المستودع
         uses: actions/checkout@v3
 
-      - name: تثبيت FFmpeg و Streamlink والخطوط
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg python3-pip fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
-          sudo pip3 install --upgrade streamlink
-          sudo fc-cache -f -v
+      # ============ التخزين المؤقت للتبعيات ============
+      - name: استرجاع التبعيات المخزّنة (FFmpeg + Streamlink)
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/bin/ffmpeg
+            ~/.local/bin/ffprobe
+            ~/.local/bin/streamlink
+            ~/.local/lib
+            ~/.cache/pip
+          key: ${{ runner.os }}-broadcast-deps-v1
 
+      # ============ الخطوط (تُثبّت دائماً، سريعة ~15 ثانية) ============
+      - name: تثبيت الخطوط العربية والمكتبات
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
+          sudo fc-cache -f -v >/dev/null 2>&1
+
+      # ============ FFmpeg + Streamlink (أول مرة فقط) ============
+      - name: تثبيت FFmpeg و Streamlink (أول مرة فقط)
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/bin
+          echo "⬇️ تحميل FFmpeg ثابت..."
+          wget -q https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -O /tmp/ffmpeg.tar.xz
+          tar -xf /tmp/ffmpeg.tar.xz -C /tmp/
+          mv /tmp/ffmpeg-*-amd64-static/ffmpeg ~/.local/bin/
+          mv /tmp/ffmpeg-*-amd64-static/ffprobe ~/.local/bin/
+          chmod +x ~/.local/bin/ffmpeg ~/.local/bin/ffprobe
+          echo "⬇️ تثبيت Streamlink..."
+          pip3 install --user --upgrade streamlink
+
+      # ============ إضافة ~/.local/bin إلى PATH ============
+      - name: إضافة ~/.local/bin إلى PATH
+        run: |
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          ~/.local/bin/ffmpeg -version | head -1
+          ~/.local/bin/streamlink --version
+
+      # ============ جدولة الرن التالي ذاتياً ============
       - name: جدولة الرن التالي ذاتياً (بعد 5س40د)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,6 +89,7 @@ jobs:
           " >/tmp/self_trigger.log 2>&1 < /dev/null &
           echo "✅ الرن التالي مجدول بعد 5 ساعات و 40 دقيقة"
 
+      # ============ تشغيل سكربت البث ============
       - name: تشغيل سكربت البث
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
