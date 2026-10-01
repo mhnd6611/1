@@ -34,7 +34,7 @@ else
     FONT="Sans"
 fi
 
-# تحميل الشعار مع تحقق
+# تحميل الشعار
 LOGO=""
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo.png 2>/dev/null; then
     if [ -s /tmp/logo.png ] && file /tmp/logo.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
@@ -47,7 +47,7 @@ else
     echo "⚠️ logo download failed"
 fi
 
-# بناء ASS مرة واحدة
+# بناء ASS
 cat > /tmp/s.ass <<EOF
 [Script Info]
 ScriptType: v4.00+
@@ -66,31 +66,32 @@ Dialogue: 0,0:00:00.00,9:59:59.99,T,,0,0,0,,{\\fad(600,600)}$TITLE
 Dialogue: 0,0:00:00.00,9:59:59.99,S,,0,0,0,,{\\fad(600,600)}$SUBTITLE
 EOF
 
-# ═════════ دالة التشغيل الواحدة ═════════
-run() {
-    rm -f "$FIFO"
-    mkfifo "$FIFO"
-    exec 3<>"$FIFO"
+# ═════════ FIFO (مرة واحدة) ═════════
+rm -f "$FIFO"
+mkfifo "$FIFO"
+exec 3<>"$FIFO"
 
-    # ── منتج الانتظار (lavfi مباشر) ──
+# ═════════ دالة التشغيل ═════════
+run() {
+    # ── منتج الانتظار (lavfi + شعار اختياري) ──
     if [ -n "$LOGO" ]; then
-        ffmpeg -hide_banner -loglevel warning -nostdin \
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
             -loop 1 -framerate 30 -i "$LOGO" \
-            -re -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
             -map "[v]" -map 2:a:0 \
-            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
+            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
             -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     else
-        ffmpeg -hide_banner -loglevel warning -nostdin \
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
-            -re -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -vf "ass=/tmp/s.ass" \
             -map 0:v:0 -map 1:a:0 \
-            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
+            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
             -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
@@ -104,7 +105,7 @@ run() {
     fi
 
     # ── المخرج ──
-    ffmpeg -hide_banner -loglevel warning -nostdin \
+    ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
         -analyzeduration 5000000 -probesize 2000000 \
@@ -148,21 +149,34 @@ run() {
             if [ "$MODE" = "LIVE" ]; then
                 MODE="NONE"; ACTIVE=""; ACTIVE_IDX=-1
             else
-                ffmpeg -hide_banner -loglevel warning -nostdin \
-                    -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
-                    -re -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                    -vf "ass=/tmp/s.ass" \
-                    -map 0:v:0 -map 1:a:0 \
-                    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
-                    -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                    -max_muxing_queue_size 4096 \
-                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                if [ -n "$LOGO" ]; then
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
+                        -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -loop 1 -framerate 30 -i "$LOGO" \
+                        -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+                        -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
+                        -map "[v]" -map 2:a:0 \
+                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
+                        -c:a aac -b:a 128k -ar 44100 -ac 2 \
+                        -max_muxing_queue_size 4096 \
+                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                else
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
+                        -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+                        -vf "ass=/tmp/s.ass" \
+                        -map 0:v:0 -map 1:a:0 \
+                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
+                        -c:a aac -b:a 128k -ar 44100 -ac 2 \
+                        -max_muxing_queue_size 4096 \
+                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                fi
                 PROD=$!
                 sleep 3
             fi
         fi
 
-        # ── البحث عن ستريمر ──
+        # ── البحث ──
         FOUND=""; FOUND_URL=""; FOUND_IDX=-1
         LIMIT=${#STREAMERS[@]}
         if [ "$MODE" = "LIVE" ] && [ "$ACTIVE_IDX" -ge 0 ]; then
@@ -188,7 +202,7 @@ run() {
                 wait $PROD 2>/dev/null
                 sleep 1
 
-                ffmpeg -hide_banner -loglevel warning -nostdin \
+                ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     -headers "User-Agent: $UA" \
                     -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
                     -reconnect_delay_max 5 \
@@ -219,23 +233,23 @@ run() {
                 sleep 1
 
                 if [ -n "$LOGO" ]; then
-                    ffmpeg -hide_banner -loglevel warning -nostdin \
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
                         -loop 1 -framerate 30 -i "$LOGO" \
-                        -re -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+                        -f lavfi -i "anullsrc=r=44100:cl=stereo" \
                         -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
                         -map "[v]" -map 2:a:0 \
-                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
-                        -c:a aac -b:a 192k -ar 44100 -ac 2 \
+                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
+                        -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
                         -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
                 else
-                    ffmpeg -hide_banner -loglevel warning -nostdin \
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
-                        -re -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+                        -f lavfi -i "anullsrc=r=44100:cl=stereo" \
                         -vf "ass=/tmp/s.ass" \
                         -map 0:v:0 -map 1:a:0 \
-                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
+                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                         -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
                         -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
