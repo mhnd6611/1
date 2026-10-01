@@ -84,5 +84,5 @@ jobs:
       - name: تشخيص نهائي عند الإنهاء
         if: always()
         run: |
-          echo "===== OUT ====="; tail -n 30 /tmp/ffmpeg_out.log 2>/dev/null || echo "فارغ"
-          echo "===== IN ====="; tail -n 30 /tmp/ffmpeg_in.log 2>/dev/null || echo "فارغ"
+          echo "===== OUT ====="; tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "فارغ"
+          echo "===== IN ====="; tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "فارغ"
