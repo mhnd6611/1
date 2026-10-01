@@ -1,10 +1,13 @@
 #!/bin/bash
 set +m
 
+# RLM لتصحيح اتجاه النص العربي
+RLM=$'\u200f'
+
 # ═════════ إعدادات ريسبكت ═════════
-TITLE="لم يبدأ ستريمرز ريسبكت البث بعد"
-SUBTITLE="جاري انتضار ستريمرز ريسبكت بدأ البث."
-LABEL="قائمة الستريمرز:"
+TITLE="${RLM}لم يبدأ ستريمرز ريسبكت البث بعد"
+SUBTITLE="${RLM}جاري انتضار ستريمرز ريسبكت بدأ البث."
+LABEL="${RLM}قائمة الستريمرز:"
 COLOR_T="&H00FFFFFF"
 COLOR_S="&H00FFFFFF"
 COLOR_L="&H00FFFFFF"
@@ -13,13 +16,13 @@ BG="0x140024"
 FS_T=82
 FS_S=58
 FS_L=30
-POS_T=460
-POS_S=560
-POS_L=310
+POS_T=300
+POS_S=210
+POS_L=430
 OUTLINE=4
 SHADOW=2
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
-LOGO_W=340
+LOGO_W=280
 LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
@@ -35,17 +38,15 @@ FIFO="/tmp/relay.ts"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# الخط: Noto Kufi عريض وواضح
-if fc-list : family | grep -qi "Noto Kufi Arabic"; then
-    FONT="Noto Kufi Arabic"
-elif fc-list : family | grep -qi "Noto Naskh Arabic"; then
+if fc-list : family | grep -qi "Noto Naskh Arabic"; then
     FONT="Noto Naskh Arabic"
+elif fc-list : family | grep -qi "Noto Kufi Arabic"; then
+    FONT="Noto Kufi Arabic"
 else
-    FONT="Sans"
+    FONT="DejaVu Sans"
 fi
 echo "Font: $FONT"
 
-# قائمة الستريمرز مفصولة بـ ·
 LIST_STR=""
 for i in "${!STREAMERS[@]}"; do
     S=$(echo "${STREAMERS[$i]}" | xargs)
@@ -58,7 +59,6 @@ for i in "${!STREAMERS[@]}"; do
 done
 echo "List: $LIST_STR"
 
-# تحميل الشعار
 LOGO=""
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo.png 2>/dev/null; then
     if [ -s /tmp/logo.png ] && file /tmp/logo.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
@@ -71,7 +71,6 @@ else
     echo "⚠️ logo download failed"
 fi
 
-# بناء ASS
 cat > /tmp/s.ass <<EOF
 [Script Info]
 ScriptType: v4.00+
@@ -82,9 +81,9 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: T,$FONT,$FS_T,$COLOR_T,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,8,10,10,$POS_T,1
-Style: S,$FONT,$FS_S,$COLOR_S,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,8,10,10,$POS_S,1
-Style: L,$FONT,$FS_L,$COLOR_L,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,3,2,8,10,10,$POS_L,1
+Style: T,$FONT,$FS_T,$COLOR_T,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,2,10,10,$POS_T,1
+Style: S,$FONT,$FS_S,$COLOR_S,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,2,10,10,$POS_S,1
+Style: L,$FONT,$FS_L,$COLOR_L,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,3,2,2,10,10,$POS_L,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -93,13 +92,11 @@ Dialogue: 0,0:00:00.00,9:59:59.99,T,,0,0,0,,{\\fad(600,600)}$TITLE
 Dialogue: 0,0:00:00.00,9:59:59.99,S,,0,0,0,,{\\fad(600,600)}$SUBTITLE
 EOF
 
-# FIFO
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 run() {
-    # منتج الانتظار
     if [ -n "$LOGO" ]; then
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
@@ -125,10 +122,9 @@ run() {
     PROD=$!
     sleep 5
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ standby producer failed:"; cat /tmp/prod.log; return 1
+        echo "❌ standby failed:"; cat /tmp/prod.log; return 1
     fi
 
-    # المخرج
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
@@ -146,7 +142,6 @@ run() {
     fi
     echo "✅ Live — PROD=$PROD OUT=$OUT"
 
-    # إلغاء الرنات الأقدم
     ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
         OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
               --json databaseId -q ".[].databaseId" 2>/dev/null | \
