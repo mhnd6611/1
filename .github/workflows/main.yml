@@ -25,84 +25,35 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-v1
+          key: pip-pillow-v1
 
-      - name: تثبيت الأدوات المطلوبة
+      - name: تثبيت الأدوات
         run: |
           set -e
-          echo "═══ بدء التثبيت ═══"
+          echo "═══ التثبيت ═══"
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig
           
-          echo "🔍 فحص الأدوات الحالية..."
-          ls -la /usr/bin/ffmpeg 2>/dev/null && HAVE_FFMPEG=1 || HAVE_FFMPEG=0
-          ls -la /usr/bin/convert 2>/dev/null && HAVE_CONVERT=1 || HAVE_CONVERT=0
-          ls -la /usr/bin/fc-cache 2>/dev/null && HAVE_FCCACHE=1 || HAVE_FCCACHE=0
-          echo "ffmpeg=$HAVE_FFMPEG convert=$HAVE_CONVERT fc-cache=$HAVE_FCCACHE"
-          
-          echo "📦 تحديث قوائم الحزم..."
-          sudo apt-get update
-          
-          PKGS=""
-          [ "$HAVE_FFMPEG" = "0" ] && PKGS="$PKGS ffmpeg"
-          [ "$HAVE_CONVERT" = "0" ] && PKGS="$PKGS imagemagick"
-          [ "$HAVE_FCCACHE" = "0" ] && PKGS="$PKGS fontconfig"
-          
-          if [ -n "$PKGS" ]; then
-            echo "📦 تثبيت:$PKGS"
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS
-          else
-            echo "✅ كل الأدوات موجودة مسبقاً"
-          fi
+          echo "📦 Pillow + Streamlink..."
+          pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
           
           echo "🔤 تحميل الخط العربي..."
           mkdir -p ~/.fonts
-          FONT_FILE="$HOME/.fonts/NotoNaskhArabic-Regular.ttf"
-          FONT_URL_1="https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf"
-          FONT_URL_2="https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
+          FONT="$HOME/.fonts/NotoNaskhArabic-Regular.ttf"
+          curl -sL --max-time 30 "https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf" -o "$FONT" || \
+          curl -sL --max-time 30 "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf" -o "$FONT"
+          [ -s "$FONT" ] && echo "✅ الخط OK" || (echo "❌ فشل الخط"; exit 1)
           
-          if wget -q --timeout=30 --tries=2 "$FONT_URL_1" -O "$FONT_FILE" && [ -s "$FONT_FILE" ]; then
-            echo "✅ تم تحميل الخط من المصدر 1"
-          elif wget -q --timeout=30 --tries=2 "$FONT_URL_2" -O "$FONT_FILE" && [ -s "$FONT_FILE" ]; then
-            echo "✅ تم تحميل الخط من المصدر 2"
-          else
-            echo "⚠️ فشل تحميل الخط — تثبيت عبر apt"
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends fonts-noto-core
-          fi
-          
-          echo "📦 تثبيت Streamlink..."
-          pip3 install --user --upgrade streamlink
-          
-          echo "🔤 تحديث ذاكرة الخطوط..."
-          fc-cache -fv 2>&1 | tail -3
-          
-          echo "═══ اكتمل التثبيت ═══"
+          fc-cache -f >/dev/null 2>&1
+          echo "═══ اكتمل ═══"
 
-      - name: التحقق من الأدوات
+      - name: التحقق
         run: |
-          echo "════════ التحقق ════════"
-          CONVERT=$(which convert || echo "مفقود")
-          FFMPEG=$(which ffmpeg || echo "مفقود")
-          FONT=$(fc-list : family | grep -i 'Noto Naskh' | head -1 || echo "مفقود")
-          SL="$($HOME/.local/bin/streamlink --version 2>&1 || echo "مفقود")"
-          
-          echo "convert:    $CONVERT"
-          echo "ffmpeg:     $FFMPEG"
-          echo "الخط:       $FONT"
-          echo "streamlink: $SL"
-          echo "═════════════════════════"
-          
-          if [ "$CONVERT" = "مفقود" ]; then
-            echo "❌ ImageMagick مفقود — لا يمكن رسم النص"
-            exit 1
-          fi
-          if [ "$FFMPEG" = "مفقود" ]; then
-            echo "❌ ffmpeg مفقود"
-            exit 1
-          fi
-          if [ "$FONT" = "مفقود" ]; then
-            echo "❌ الخط العربي مفقود"
-            exit 1
-          fi
-          echo "✅ كل الأدوات جاهزة"
+          echo "ffmpeg: $(which ffmpeg || echo مفقود)"
+          echo "python3: $(which python3)"
+          echo "PIL: $(python3 -c 'import PIL; print(PIL.__version__)' 2>&1)"
+          echo "الخط: $(ls -la ~/.fonts/*.ttf 2>/dev/null | head -1)"
+          echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1)"
 
       - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -116,7 +67,7 @@ jobs:
             sleep 19800
             gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo "✅ تمت الجدولة"
+          echo "✅"
 
       - name: تشغيل البث
         env:
@@ -125,6 +76,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          echo "🎬 بدء البث..."
           chmod +x stream.sh
           ./stream.sh
