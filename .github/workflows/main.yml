@@ -18,53 +18,84 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
-      - uses: actions/checkout@v3
+      - name: جلب ملفات المستودع
+        uses: actions/checkout@v3
 
-      - name: Cache pip
+      - name: إلغاء الرنات القديمة (قبل التثبيت — يمنع تنافس apt)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 البحث عن رنات قديمة نشطة..."
+          OLD=$(timeout 15 gh run list --workflow="main.yml" --status=in_progress \
+                --json databaseId -q ".[].databaseId" 2>/dev/null | \
+                awk -v m="${{ github.run_id }}" '$1 < m' || true)
+          if [ -z "$OLD" ]; then
+            echo "✅ لا توجد رنات قديمة — لا شيء لإلغائه"
+          else
+            for R in $OLD; do
+              echo "🛑 إلغاء الرن القديم: $R"
+              timeout 10 gh run cancel "$R" 2>/dev/null || true
+            done
+            echo "⏳ انتظار تحرير الاتصال مع ريستريم..."
+            sleep 20
+            echo "✅ تم — بدء التثبيت بدون تنافس"
+          fi
+
+      - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-v1
 
-      - name: Install
+      - name: تثبيت المتطلبات
         run: |
+          echo "📦 تحديث قوائم الحزم..."
           sudo apt-get update -qq
+          echo "📦 تثبيت FFmpeg والخطوط والمكتبات..."
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
+          echo "🎨 التحقق من ImageMagick..."
           if ! which convert >/dev/null 2>&1; then
-            echo "imagemagick missing — installing"
+            echo "⚠️ ImageMagick غير موجود — جاري تثبيته..."
             sudo apt-get install -y -qq imagemagick
           else
-            echo "✅ imagemagick pre-installed: $(convert -version | head -1)"
+            echo "✅ ImageMagick مثبّت مسبقاً: $(convert -version | head -1)"
           fi
+          echo "📺 تثبيت Streamlink..."
           pip3 install --user -q --upgrade streamlink
+          echo "🔤 تحديث ذاكرة الخطوط..."
           sudo fc-cache -f >/dev/null 2>&1
+          echo "✅ اكتمل التثبيت"
 
-      - name: Verify
+      - name: التحقق من الأدوات
         run: |
-          echo "convert: $(which convert || echo MISSING)"
-          echo "ffmpeg: $(which ffmpeg || echo MISSING)"
-          echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1 || echo MISSING)"
+          echo "═══ التحقق من الأدوات ═══"
+          echo "🎨 convert: $(which convert || echo 'مفقود')"
+          echo "📺 ffmpeg:  $(which ffmpeg || echo 'مفقود')"
+          echo "🔗 streamlink: $($HOME/.local/bin/streamlink --version 2>&1 || echo 'مفقود')"
+          echo "═══ نهاية التحقق ═══"
 
-      - name: PATH
+      - name: إضافة المسار
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Self-schedule 5h30m
+      - name: جدولة الرن التالي ذاتياً (بعد 5س30د)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RKEY="${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}"
+          echo "⏰ جدولة الرن التالي بعد 5 ساعات و 30 دقيقة"
           setsid nohup bash -c "
             sleep 19800
             gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo OK
+          echo "✅ تمت الجدولة"
 
-      - name: Broadcast
+      - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
           STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Hook,okb8'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
+          echo "🎬 بدء البث..."
           chmod +x stream.sh
           ./stream.sh
