@@ -5,37 +5,31 @@ set +m
 #  إعدادات البث — ريسبكت
 # ═════════════════════════════════════════════
 
-# النصوص
 TITLE="لم يبدأ ستريمرز ريسبكت البث بعد"
 SUBTITLE="جاري انتضار ستريمرز ريسبكت بدأ البث."
 LABEL="قائمة الستريمرز:"
 
-# الألوان
 COLOR_T="white"
 COLOR_S="white"
 COLOR_L="#DDDDDD"
 COLOR_OUTLINE="black"
 BG="0x140024"
 
-# أحجام الخطوط
 FS_T=82
 FS_S=56
 FS_L=30
 
-# المواضع
 Y_LIST=60
 Y_TITLE=200
 Y_SUB=370
 OUTLINE_W=4
 
-# الشعار
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
 LOGO_W=280
 LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
 
-# الخط
 FONT_NAME="Noto Naskh Arabic"
 
 # ═════════════════════════════════════════════
@@ -50,7 +44,6 @@ FIFO="/tmp/relay.ts"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# ═════════ قائمة الستريمرز على سطرين ═════════
 build_list_lines() {
     local total=${#STREAMERS[@]}
     local per_line=$(( (total + 1) / 2 ))
@@ -76,7 +69,6 @@ LIST_LINE2="${LIST_LINES[1]}"
 echo "📋 السطر 1: $LIST_LINE1"
 echo "📋 السطر 2: $LIST_LINE2"
 
-# ═════════ تحميل الشعار ═════════
 LOGO=""
 echo "⬇️ تحميل الشعار..."
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/dev/null; then
@@ -87,7 +79,6 @@ if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/d
 fi
 [ -z "$LOGO" ] && echo "⚠️ لا يوجد شعار — سيستمر البث بدونه"
 
-# ═════════ رسم النصوص (يدعم العربية 100%) ═════════
 echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
@@ -110,21 +101,17 @@ convert -background none -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth 
     pango:"$SUBTITLE" /tmp/txt/sub.png 2>/dev/null
 
 if [ ! -s /tmp/txt/title.png ]; then
-    echo "❌ فشل رسم النص"
-    exit 1
+    echo "❌ فشل رسم النص"; exit 1
 fi
 echo "✅ تم رسم النصوص"
 
-# ═════════ FIFO ═════════
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
-# ═════════ دالة بناء فلتر الانتظار ═════════
 standby_filter() {
     local logo_idx=$1
     local list2_exists=$2
-
     local f=""
     f="[0:v][3:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
     if [ "$list2_exists" = "1" ]; then
@@ -143,7 +130,6 @@ standby_filter() {
     echo "$f"
 }
 
-# ═════════ تشغيل ═════════
 run() {
     local inputs=()
     inputs+=(-re -f lavfi -i "color=c=$BG:s=1920x1080:r=30")
@@ -169,7 +155,7 @@ run() {
     local filter
     filter=$(standby_filter "$logo_idx" "$list2_exists")
 
-    echo "▶️ تشغيل منتج شاشة الانتظار..."
+    echo "▶️ تشغيل منتج الانتظار..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         "${inputs[@]}" \
         -filter_complex "$filter" \
@@ -181,9 +167,7 @@ run() {
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ فشل منتج الانتظار:"
-        cat /tmp/prod.log
-        return 1
+        echo "❌ فشل منتج الانتظار:"; cat /tmp/prod.log; return 1
     fi
     echo "✅ منتج الانتظار شغال (PID: $PROD)"
 
@@ -199,32 +183,36 @@ run() {
     OUT=$!
     sleep 5
     if ! kill -0 $OUT 2>/dev/null; then
-        echo "❌ فشل الاتصال مع ريستريم:"
-        cat /tmp/out.log
+        echo "❌ فشل الاتصال مع ريستريم:"; cat /tmp/out.log
         kill -9 $PROD 2>/dev/null
         return 1
     fi
     echo "✅ البث مباشر — منتج=$PROD مخرج=$OUT"
 
+    ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
+        OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
+              --json databaseId -q ".[].databaseId" 2>/dev/null | \
+              awk -v m="$GITHUB_RUN_ID" '$1 < m')
+        for R in $OLD; do
+            echo "🛑 إلغاء الرن القديم: $R"
+            timeout 8 gh run cancel "$R" 2>/dev/null
+        done
+      fi ) >/tmp/cancel.log 2>&1 &
+
     MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
 
     while true; do
         if ! kill -0 $OUT 2>/dev/null; then
-            echo "⚠️ المخرج مات — إعادة التشغيل"
-            kill -9 $PROD 2>/dev/null
-            return 1
+            echo "⚠️ المخرج مات — إعادة"; kill -9 $PROD 2>/dev/null; return 1
         fi
 
         if ! kill -0 $PROD 2>/dev/null; then
             if [ "$MODE" = "مباشر" ]; then
                 MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
             else
-                echo "🔄 إعادة تشغيل منتج الانتظار..."
-                local f2
-                f2=$(standby_filter "$logo_idx" "$list2_exists")
+                local f2; f2=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" \
-                    -filter_complex "$f2" \
+                    "${inputs[@]}" -filter_complex "$f2" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -248,8 +236,7 @@ run() {
                   --stream-timeout 15 "https://kick.com/$S" best \
                   --stream-url 2>/dev/null | grep -m1 "^http")
             if [ -n "$URL" ]; then
-                FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i
-                break
+                FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i; break
             fi
         done
 
@@ -278,9 +265,7 @@ run() {
                     MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
                     echo "✅ بث مباشر: $FOUND"
                 else
-                    echo "⚠️ فشل الاتصال بـ $FOUND:"
-                    tail -n 5 /tmp/prod.log
-                    MODE="فارغ"
+                    echo "⚠️ فشل الاتصال بـ $FOUND:"; tail -n 5 /tmp/prod.log; MODE="فارغ"
                 fi
             fi
         else
@@ -289,12 +274,9 @@ run() {
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
-
-                local f3
-                f3=$(standby_filter "$logo_idx" "$list2_exists")
+                local f3; f3=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" \
-                    -filter_complex "$f3" \
+                    "${inputs[@]}" -filter_complex "$f3" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -316,7 +298,6 @@ run() {
     done
 }
 
-# ═════════ الحلقة الخارجية — لا تنتهي ═════════
 echo "🚀 بدء التشغيل..."
 while true; do
     run
