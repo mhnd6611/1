@@ -29,10 +29,21 @@ jobs:
       - name: Install
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev imagemagick
+          sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
+          if ! which convert >/dev/null 2>&1; then
+            echo "imagemagick missing — installing"
+            sudo apt-get install -y -qq imagemagick
+          else
+            echo "✅ imagemagick pre-installed: $(convert -version | head -1)"
+          fi
           pip3 install --user -q --upgrade streamlink
           sudo fc-cache -f >/dev/null 2>&1
-          sudo sed -i 's/rights="none" pattern="PNG"/rights="read|write" pattern="PNG"/' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
+
+      - name: Verify
+        run: |
+          echo "convert: $(which convert || echo MISSING)"
+          echo "ffmpeg: $(which ffmpeg || echo MISSING)"
+          echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1 || echo MISSING)"
 
       - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
