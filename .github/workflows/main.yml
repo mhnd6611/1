@@ -18,28 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
-      - name: جلب ملفات المستودع
+      - name: جلب الملفات
         uses: actions/checkout@v3
-
-      - name: إلغاء الرنات القديمة (قبل التثبيت — يمنع تنافس apt)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🔍 البحث عن رنات قديمة نشطة..."
-          OLD=$(timeout 15 gh run list --workflow="main.yml" --status=in_progress \
-                --json databaseId -q ".[].databaseId" 2>/dev/null | \
-                awk -v m="${{ github.run_id }}" '$1 < m' || true)
-          if [ -z "$OLD" ]; then
-            echo "✅ لا توجد رنات قديمة — لا شيء لإلغائه"
-          else
-            for R in $OLD; do
-              echo "🛑 إلغاء الرن القديم: $R"
-              timeout 10 gh run cancel "$R" 2>/dev/null || true
-            done
-            echo "⏳ انتظار تحرير الاتصال مع ريستريم..."
-            sleep 20
-            echo "✅ تم — بدء التثبيت بدون تنافس"
-          fi
 
       - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
@@ -47,37 +27,42 @@ jobs:
           path: ~/.cache/pip
           key: pip-v1
 
-      - name: تثبيت المتطلبات
+      - name: تثبيت سريع
         run: |
-          echo "📦 تحديث قوائم الحزم..."
-          sudo apt-get update -qq
-          echo "📦 تثبيت FFmpeg والخطوط والمكتبات..."
-          sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
-          echo "🎨 التحقق من ImageMagick..."
-          if ! which convert >/dev/null 2>&1; then
-            echo "⚠️ ImageMagick غير موجود — جاري تثبيته..."
-            sudo apt-get install -y -qq imagemagick
+          echo "🎨 convert: $(which convert 2>/dev/null || echo 'مفقود')"
+          echo "📺 ffmpeg: $(which ffmpeg 2>/dev/null || echo 'مفقود')"
+          
+          echo "🔤 تحميل الخط العربي..."
+          mkdir -p ~/.fonts
+          FONT_URL="https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf"
+          if wget -q --timeout=20 "$FONT_URL" -O ~/.fonts/NotoNaskhArabic-Regular.ttf; then
+            echo "✅ تم تحميل الخط مباشرة"
           else
-            echo "✅ ImageMagick مثبّت مسبقاً: $(convert -version | head -1)"
+            echo "⚠️ فشل التحميل — استخدام apt"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq fonts-noto-core 2>/dev/null || true
           fi
-          echo "📺 تثبيت Streamlink..."
+          
+          echo "📦 تثبيت Streamlink..."
           pip3 install --user -q --upgrade streamlink
+          
           echo "🔤 تحديث ذاكرة الخطوط..."
-          sudo fc-cache -f >/dev/null 2>&1
+          fc-cache -f >/dev/null 2>&1
           echo "✅ اكتمل التثبيت"
 
       - name: التحقق من الأدوات
         run: |
-          echo "═══ التحقق من الأدوات ═══"
-          echo "🎨 convert: $(which convert || echo 'مفقود')"
-          echo "📺 ffmpeg:  $(which ffmpeg || echo 'مفقود')"
-          echo "🔗 streamlink: $($HOME/.local/bin/streamlink --version 2>&1 || echo 'مفقود')"
-          echo "═══ نهاية التحقق ═══"
+          echo "════════ التحقق ════════"
+          echo "convert:    $(which convert || echo مفقود)"
+          echo "ffmpeg:     $(which ffmpeg || echo مفقود)"
+          echo "الخط العربي: $(fc-list : family | grep -i 'Noto Naskh' | head -1 || echo مفقود)"
+          echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1 || echo مفقود)"
+          echo "═════════════════════════"
 
-      - name: إضافة المسار
+      - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: جدولة الرن التالي ذاتياً (بعد 5س30د)
+      - name: جدولة الرن التالي
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
