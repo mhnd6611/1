@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev imagemagick
           pip3 install --user -q --upgrade streamlink
           sudo fc-cache -f >/dev/null 2>&1
-          sudo sed -i 's/^<policy domain="coder" rights="none" pattern="PNG"/<policy domain="coder" rights="read|write" pattern="PNG"/' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
+          sudo sed -i 's/rights="none" pattern="PNG"/rights="read|write" pattern="PNG"/' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
 
       - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -46,7 +46,7 @@ jobs:
             sleep 19800
             gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo "OK"
+          echo OK
 
       - name: Broadcast
         env:
