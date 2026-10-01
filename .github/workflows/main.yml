@@ -65,7 +65,7 @@ jobs:
           " >/tmp/self_trigger.log 2>&1 < /dev/null &
           echo "✅ الرن التالي مجدول بعد 5س40د"
 
-      - name: تشغيل سكربت البث
+      - name: تشغيل سكربت البث (مع إعادة محاولة)
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
@@ -74,7 +74,12 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x stream.sh
-          ./stream.sh
+          for i in 1 2 3; do
+            echo "════════ محاولة $i ════════"
+            ./stream.sh && break
+            echo "⚠️ انهار السكربت — إعادة بعد 15 ثانية..."
+            sleep 15
+          done
 
       - name: تشخيص نهائي عند الإنهاء
         if: always()
