@@ -30,31 +30,72 @@ LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
 
-FONT_NAME="Noto Naskh Arabic"
-
 # ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
-[ -z "$RESTREAM_KEY" ] && { echo "❌ خطأ: مفتاح ريستريم فارغ"; exit 1; }
-[ -z "$STREAMERS_LIST" ] && { echo "❌ خطأ: قائمة الستريمرز فارغة"; exit 1; }
-
-echo "═══ فحص المتطلبات ═══"
-for TOOL in ffmpeg convert fc-list streamlink; do
-    if which "$TOOL" >/dev/null 2>&1; then
-        echo "✅ $TOOL: $(which $TOOL)"
-    else
-        echo "❌ $TOOL مفقود"
-        exit 1
-    fi
-done
-echo "═════════════════════"
+[ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح فارغ"; exit 1; }
+[ -z "$STREAMERS_LIST" ] && { echo "❌ قائمة فارغة"; exit 1; }
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
 
+FONT_FILE="$HOME/.fonts/NotoNaskhArabic-Regular.ttf"
+[ ! -s "$FONT_FILE" ] && FONT_FILE=$(fc-match -f '%{file}' "Noto Naskh Arabic")
+echo "🔤 الخط: $FONT_FILE"
+
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
+# ═════════ سكربت رسم النص بـ Pillow ═════════
+cat > /tmp/render.py <<'PYEOF'
+import sys
+from PIL import Image, ImageDraw, ImageFont
+
+text = sys.argv[1]
+color = sys.argv[2]
+pointsize = int(sys.argv[3])
+output = sys.argv[4]
+font_path = sys.argv[5]
+outline_color = sys.argv[6] if len(sys.argv) > 6 else None
+outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
+
+font = ImageFont.truetype(font_path, pointsize)
+
+# قياس
+tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+d = ImageDraw.Draw(tmp)
+bbox = d.textbbox((0, 0), text, font=font, direction="rtl")
+tw = bbox[2] - bbox[0]
+th = bbox[3] - bbox[1]
+
+pad = max(outline_w, 5) + 10
+W = tw + pad * 2
+H = th + pad * 2
+
+img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+d = ImageDraw.Draw(img)
+
+x = pad - bbox[0]
+y = pad - bbox[1]
+
+# حد خارجي
+if outline_color and outline_w > 0:
+    for dx in range(-outline_w, outline_w + 1):
+        for dy in range(-outline_w, outline_w + 1):
+            if dx * dx + dy * dy <= outline_w * outline_w:
+                d.text((x + dx, y + dy), text, font=font, fill=outline_color, direction="rtl")
+
+# النص
+d.text((x, y), text, font=font, fill=color, direction="rtl")
+
+img.save(output, "PNG")
+PYEOF
+
+render_text() {
+    python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_FILE" "$5" "$6"
+}
+
+# ═════════ قائمة الستريمرز ═════════
 build_list_lines() {
     local total=${#STREAMERS[@]}
     local per_line=$(( (total + 1) / 2 ))
@@ -77,47 +118,34 @@ build_list_lines() {
 mapfile -t LIST_LINES < <(build_list_lines)
 LIST_LINE1="${LIST_LINES[0]}"
 LIST_LINE2="${LIST_LINES[1]}"
-echo "📋 السطر 1: $LIST_LINE1"
-echo "📋 السطر 2: $LIST_LINE2"
 
+# ═════════ الشعار ═════════
 LOGO=""
-echo "⬇️ تحميل الشعار..."
+echo "⬇️ الشعار..."
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/dev/null; then
     if [ -s /tmp/logo_src.png ] && file /tmp/logo_src.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
-        convert /tmp/logo_src.png -resize ${LOGO_W}x /tmp/logo.png 2>/dev/null
-        [ -s /tmp/logo.png ] && { LOGO="/tmp/logo.png"; echo "✅ الشعار جاهز"; }
+        LOGO="/tmp/logo_src.png"
+        echo "✅ الشعار"
     fi
 fi
-[ -z "$LOGO" ] && echo "⚠️ لا يوجد شعار — سيستمر البث بدونه"
+[ -z "$LOGO" ] && echo "⚠️ بلا شعار"
 
+# ═════════ رسم النصوص ═════════
 echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
-convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
-    -font "$FONT_NAME" -pointsize $FS_L \
-    pango:"$LABEL $LIST_LINE1" /tmp/txt/l1.png 2>&1 || echo "⚠️ فشل السطر 1"
-
+render_text "$LABEL $LIST_LINE1" "#DDDDDD" $FS_L /tmp/txt/l1.png "black" 1 && echo "✅ L1" || echo "⚠️ L1 فشل"
 if [ -n "$LIST_LINE2" ]; then
-    convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
-        -font "$FONT_NAME" -pointsize $FS_L \
-        pango:"$LIST_LINE2" /tmp/txt/l2.png 2>&1 || echo "⚠️ فشل السطر 2"
+    render_text "$LIST_LINE2" "#DDDDDD" $FS_L /tmp/txt/l2.png "black" 1 && echo "✅ L2" || echo "⚠️ L2 فشل"
 fi
-
-convert -background none -fill "$COLOR_T" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
-    -font "$FONT_NAME" -pointsize $FS_T \
-    pango:"$TITLE" /tmp/txt/title.png 2>&1 || true
-
-convert -background none -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
-    -font "$FONT_NAME" -pointsize $FS_S \
-    pango:"$SUBTITLE" /tmp/txt/sub.png 2>&1 || true
+render_text "$TITLE" "white" $FS_T /tmp/txt/title.png "black" $OUTLINE_W && echo "✅ عنوان" || echo "⚠️ عنوان فشل"
+render_text "$SUBTITLE" "white" $FS_S /tmp/txt/sub.png "black" $OUTLINE_W && echo "✅ سطر" || echo "⚠️ سطر فشل"
 
 if [ ! -s /tmp/txt/title.png ]; then
-    echo "❌ فشل رسم العنوان — تفاصيل الخطأ:"
-    convert -background none -fill white -font "$FONT_NAME" -pointsize $FS_T pango:"$TITLE" /tmp/txt/title.png
-    ls -la /tmp/txt/
+    echo "❌ فشل الرسم — إنهاء"
     exit 1
 fi
-echo "✅ تم رسم النصوص"
+echo "✅ اكتمل الرسم"
 
 rm -f "$FIFO"
 mkfifo "$FIFO"
@@ -169,7 +197,6 @@ run() {
     local filter
     filter=$(standby_filter "$logo_idx" "$list2_exists")
 
-    echo "▶️ تشغيل منتج الانتظار..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         "${inputs[@]}" \
         -filter_complex "$filter" \
@@ -181,13 +208,10 @@ run() {
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ فشل منتج الانتظار:"
-        cat /tmp/prod.log
-        return 1
+        echo "❌ منتج الانتظار:"; cat /tmp/prod.log; return 1
     fi
-    echo "✅ منتج الانتظار شغال (PID: $PROD)"
+    echo "✅ منتج الانتظار (PID: $PROD)"
 
-    echo "🔗 فتح اتصال مع ريستريم..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
@@ -199,8 +223,7 @@ run() {
     OUT=$!
     sleep 5
     if ! kill -0 $OUT 2>/dev/null; then
-        echo "❌ فشل الاتصال مع ريستريم:"
-        cat /tmp/out.log
+        echo "❌ المخرج:"; cat /tmp/out.log
         kill -9 $PROD 2>/dev/null
         return 1
     fi
@@ -211,7 +234,7 @@ run() {
               --json databaseId -q ".[].databaseId" 2>/dev/null | \
               awk -v m="$GITHUB_RUN_ID" '$1 < m')
         for R in $OLD; do
-            echo "🛑 إلغاء الرن القديم: $R"
+            echo "🛑 إلغاء: $R"
             timeout 8 gh run cancel "$R" 2>/dev/null
         done
       fi ) >/tmp/cancel.log 2>&1 &
@@ -220,9 +243,7 @@ run() {
 
     while true; do
         if ! kill -0 $OUT 2>/dev/null; then
-            echo "⚠️ المخرج مات — إعادة"
-            kill -9 $PROD 2>/dev/null
-            return 1
+            echo "⚠️ المخرج مات"; kill -9 $PROD 2>/dev/null; return 1
         fi
 
         if ! kill -0 $PROD 2>/dev/null; then
@@ -232,8 +253,7 @@ run() {
                 local f2
                 f2=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" \
-                    -filter_complex "$f2" \
+                    "${inputs[@]}" -filter_complex "$f2" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -264,7 +284,7 @@ run() {
 
         if [ -n "$FOUND" ]; then
             if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
-                echo "🎯 التحويل إلى: $FOUND"
+                echo "🎯 $FOUND"
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
@@ -285,25 +305,21 @@ run() {
 
                 if kill -0 $PROD 2>/dev/null; then
                     MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
-                    echo "✅ بث مباشر: $FOUND"
+                    echo "✅ مباشر: $FOUND"
                 else
-                    echo "⚠️ فشل الاتصال بـ $FOUND:"
-                    tail -n 5 /tmp/prod.log
-                    MODE="فارغ"
+                    echo "⚠️ فشل $FOUND"; tail -n 5 /tmp/prod.log; MODE="فارغ"
                 fi
             fi
         else
             if [ "$MODE" != "انتظار" ]; then
-                echo "⏳ لا يوجد بث — العودة لشاشة الانتظار"
+                echo "⏳ انتظار"
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
-
                 local f3
                 f3=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" \
-                    -filter_complex "$f3" \
+                    "${inputs[@]}" -filter_complex "$f3" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -317,17 +333,17 @@ run() {
 
         TICK=$((TICK+1))
         if [ $((TICK % 4)) -eq 0 ]; then
-            OUT_STATE=$(kill -0 $OUT 2>/dev/null && echo "حي" || echo "ميت")
-            PROD_STATE=$(kill -0 $PROD 2>/dev/null && echo "حي" || echo "ميت")
-            echo "── [$(date -u +%H:%M:%S)] الوضع=$MODE | المخرج=$OUT_STATE | المنتج=$PROD_STATE ──"
+            OS=$(kill -0 $OUT 2>/dev/null && echo حي || echo ميت)
+            PS=$(kill -0 $PROD 2>/dev/null && echo حي || echo ميت)
+            echo "── [$(date -u +%H:%M:%S)] $MODE | OUT=$OS | PROD=$PS ──"
         fi
         sleep 15
     done
 }
 
-echo "🚀 بدء التشغيل..."
+echo "🚀 بدء..."
 while true; do
     run
-    echo "⚠️ توقف الجلسة — إعادة بعد 5 ثوان..."
+    echo "⚠️ إعادة بعد 5 ثوان..."
     sleep 5
 done
