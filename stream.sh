@@ -75,31 +75,26 @@ fi
 echo "🖌️ rendering text..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
-# السطر الأول: LABEL + قائمة الستريمرز (سطر 1)
 convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
     -font "$FONT_NAME" -pointsize $FS_L \
     pango:"$LABEL $LIST_LINE1" /tmp/txt/l1.png 2>/dev/null
 
-# السطر الثاني: تكملة القائمة
 if [ -n "$LIST_LINE2" ]; then
     convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
         -font "$FONT_NAME" -pointsize $FS_L \
         pango:"$LIST_LINE2" /tmp/txt/l2.png 2>/dev/null
 fi
 
-# العنوان الرئيسي
 convert -background none -fill "$COLOR_T" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
     -font "$FONT_NAME" -pointsize $FS_T \
     pango:"$TITLE" /tmp/txt/title.png 2>/dev/null
 
-# السطر الثاني
 convert -background none -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
     -font "$FONT_NAME" -pointsize $FS_S \
     pango:"$SUBTITLE" /tmp/txt/sub.png 2>/dev/null
 
 if [ ! -s /tmp/txt/title.png ]; then
     echo "❌ text render failed"
-    cat /tmp/txt/title.png 2>/dev/null
     exit 1
 fi
 echo "✅ text OK"
@@ -111,10 +106,9 @@ exec 3<>"$FIFO"
 
 # ═════════ دالة بناء فلتر الانتظار ═════════
 standby_filter() {
-    # المدخلات: 0=color, 1=title.png, 2=sub.png, 3=list1.png, 4=list2.png (إن وجد), 5=logo (إن وجد), ثم anullsrc
-    local logo_idx=$1  # فهرس مدخل الشعار أو -1
-    local audio_idx=$2 # فهرس مدخل الصوت
-    local list2_exists=$3  # 1 أو 0
+    local logo_idx=$1
+    local audio_idx=$2
+    local list2_exists=$3
 
     local f=""
     f="[0:v][3:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
@@ -136,7 +130,6 @@ standby_filter() {
 
 # ═════════ تشغيل ═════════
 run() {
-    # بناء مدخلات ffmpeg ديناميكياً
     local inputs=()
     inputs+=(-re -f lavfi -i "color=c=$BG:s=1920x1080:r=30")
     inputs+=(-loop 1 -framerate 30 -i /tmp/txt/title.png)
@@ -175,7 +168,6 @@ run() {
         echo "❌ standby failed:"; cat /tmp/prod.log; return 1
     fi
 
-    # المخرج
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
@@ -210,7 +202,6 @@ run() {
             if [ "$MODE" = "LIVE" ]; then
                 MODE="NONE"; ACTIVE=""; ACTIVE_IDX=-1
             else
-                # إعادة إطلاق standby
                 local f2
                 f2=$(standby_filter "$logo_idx" "$audio_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
