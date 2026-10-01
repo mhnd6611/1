@@ -28,28 +28,26 @@ jobs:
     timeout-minutes: 355
 
     steps:
-      - name: جلب ملفات المستودع
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Cache للـ pip
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-streamlink-v1
+          key: ${{ runner.os }}-pip-v2
 
-      - name: تثبيت FFmpeg و Streamlink و الخطوط
+      - name: Install deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
           pip3 install --user --upgrade streamlink
           sudo fc-cache -f -v >/dev/null 2>&1
           ffmpeg -version | head -1
-          ~/.local/bin/streamlink --version
 
-      - name: إضافة ~/.local/bin إلى PATH
+      - name: Add local bin to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: جدولة الرن التالي ذاتياً (بعد 5س40د)
+      - name: Self-schedule next run (5h40m)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -63,9 +61,9 @@ jobs:
               -f restream_key='$RKEY' \
               -f quality='$QUAL'
           " >/tmp/self_trigger.log 2>&1 < /dev/null &
-          echo "✅ الرن التالي مجدول بعد 5س40د"
+          echo "scheduled"
 
-      - name: تشغيل سكربت البث (مع إعادة محاولة)
+      - name: Run broadcast
         env:
           STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
@@ -74,15 +72,10 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x stream.sh
-          for i in 1 2 3; do
-            echo "════════ محاولة $i ════════"
-            ./stream.sh && break
-            echo "⚠️ انهار السكربت — إعادة بعد 15 ثانية..."
-            sleep 15
-          done
+          ./stream.sh
 
-      - name: تشخيص نهائي عند الإنهاء
+      - name: Final diagnostics
         if: always()
         run: |
-          echo "===== OUT ====="; tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "فارغ"
-          echo "===== IN ====="; tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "فارغ"
+          echo "===== OUT ====="; tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "empty"
+          echo "===== IN ====="; tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "empty"
