@@ -17,7 +17,6 @@ jobs:
   broadcast:
     runs-on: ubuntu-latest
     timeout-minutes: 355
-
     steps:
       - uses: actions/checkout@v3
 
@@ -34,10 +33,10 @@ jobs:
           pip3 install --user -q --upgrade streamlink
           sudo fc-cache -f >/dev/null 2>&1
 
-      - name: Path
+      - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Schedule next run (5h30m)
+      - name: Self-schedule 5h30m
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
