@@ -1,33 +1,28 @@
 #!/bin/bash
 set +m
 
-# RLM لتصحيح اتجاه النص العربي
-RLM=$'\u200f'
-
 # ═════════ إعدادات ريسبكت ═════════
-TITLE="${RLM}لم يبدأ ستريمرز ريسبكت البث بعد"
-SUBTITLE="${RLM}جاري انتضار ستريمرز ريسبكت بدأ البث."
-LABEL="${RLM}قائمة الستريمرز:"
-COLOR_T="&H00FFFFFF"
-COLOR_S="&H00FFFFFF"
-COLOR_L="&H00FFFFFF"
-COLOR_OUTLINE="&H00000000"
+TITLE="لم يبدأ ستريمرز ريسبكت البث بعد"
+SUBTITLE="جاري انتضار ستريمرز ريسبكت بدأ البث."
+LABEL="قائمة الستريمرز:"
+COLOR_T="white"
+COLOR_S="white"
+COLOR_L="#CCCCCC"
+COLOR_OUTLINE="black"
 BG="0x140024"
 FS_T=82
 FS_S=58
-FS_L=30
-POS_T=300
-POS_S=210
-POS_L=430
+FS_L=22
+Y_LIST=60
+Y_TITLE=200
+Y_SUB=380
 OUTLINE=4
-SHADOW=2
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
 LOGO_W=280
 LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
 # ══════════════════════════════════
-
 RESTREAM_KEY="${RESTREAM_KEY:-}"
 [ -z "$RESTREAM_KEY" ] && { echo "ERR: no key"; exit 1; }
 [ -z "$STREAMERS_LIST" ] && { echo "ERR: no streamers"; exit 1; }
@@ -38,15 +33,12 @@ FIFO="/tmp/relay.ts"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-if fc-list : family | grep -qi "Noto Naskh Arabic"; then
-    FONT="Noto Naskh Arabic"
-elif fc-list : family | grep -qi "Noto Kufi Arabic"; then
-    FONT="Noto Kufi Arabic"
-else
-    FONT="DejaVu Sans"
-fi
-echo "Font: $FONT"
+# مسار الخط
+FONT_FILE=$(fc-match -f '%{file}' "Noto Naskh Arabic" 2>/dev/null)
+[ -z "$FONT_FILE" ] && FONT_FILE=$(fc-match -f '%{file}' "Sans" 2>/dev/null)
+echo "Font: $FONT_FILE"
 
+# قائمة الستريمرز
 LIST_STR=""
 for i in "${!STREAMERS[@]}"; do
     S=$(echo "${STREAMERS[$i]}" | xargs)
@@ -57,13 +49,16 @@ for i in "${!STREAMERS[@]}"; do
         LIST_STR="$LIST_STR · $S"
     fi
 done
-echo "List: $LIST_STR"
 
+# تحميل الشعار
 LOGO=""
-if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo.png 2>/dev/null; then
-    if [ -s /tmp/logo.png ] && file /tmp/logo.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
-        LOGO="/tmp/logo.png"
-        echo "✅ logo OK"
+if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/dev/null; then
+    if [ -s /tmp/logo_src.png ] && file /tmp/logo_src.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
+        convert /tmp/logo_src.png -resize ${LOGO_W}x /tmp/logo.png 2>/dev/null
+        if [ -s /tmp/logo.png ]; then
+            LOGO="/tmp/logo.png"
+            echo "✅ logo OK"
+        fi
     else
         echo "⚠️ logo not image"
     fi
@@ -71,39 +66,40 @@ else
     echo "⚠️ logo download failed"
 fi
 
-cat > /tmp/s.ass <<EOF
-[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-ScaledBorderAndShadow: yes
-WrapStyle: 2
+# ═════════ رسم النصوص كصورة PNG بـ ImageMagick ═════════
+echo "🖌️ rendering text PNG..."
+convert -size 1920x1080 xc:transparent \
+    -font "$FONT_FILE" \
+    -gravity north \
+    -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 2 \
+    -pointsize $FS_L -annotate +0+$Y_LIST "$LABEL $LIST_STR" \
+    -fill "$COLOR_T" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE \
+    -pointsize $FS_T -annotate +0+$Y_TITLE "$TITLE" \
+    -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE \
+    -pointsize $FS_S -annotate +0+$Y_SUB "$SUBTITLE" \
+    /tmp/texts.png
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: T,$FONT,$FS_T,$COLOR_T,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,2,10,10,$POS_T,1
-Style: S,$FONT,$FS_S,$COLOR_S,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,$OUTLINE,$SHADOW,2,10,10,$POS_S,1
-Style: L,$FONT,$FS_L,$COLOR_L,&H00000000,$COLOR_OUTLINE,&H80000000,-1,0,0,0,100,100,1,0,1,3,2,2,10,10,$POS_L,1
+if [ ! -s /tmp/texts.png ]; then
+    echo "❌ text PNG failed"
+    exit 1
+fi
+echo "✅ texts.png OK: $(file -b /tmp/texts.png)"
 
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,9:59:59.99,L,,0,0,0,,{\\fad(600,600)}$LABEL $LIST_STR
-Dialogue: 0,0:00:00.00,9:59:59.99,T,,0,0,0,,{\\fad(600,600)}$TITLE
-Dialogue: 0,0:00:00.00,9:59:59.99,S,,0,0,0,,{\\fad(600,600)}$SUBTITLE
-EOF
-
+# FIFO
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
+# ═════════ تشغيل ═════════
 run() {
     if [ -n "$LOGO" ]; then
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+            -loop 1 -framerate 30 -i /tmp/texts.png \
             -loop 1 -framerate 30 -i "$LOGO" \
             -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-            -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
-            -map "[v]" -map 2:a:0 \
+            -filter_complex "[0:v][1:v]overlay=0:0[b];[b][2:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
+            -map "[v]" -map 3:a:0 \
             -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
@@ -111,9 +107,10 @@ run() {
     else
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+            -loop 1 -framerate 30 -i /tmp/texts.png \
             -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-            -vf "ass=/tmp/s.ass" \
-            -map 0:v:0 -map 1:a:0 \
+            -filter_complex "[0:v][1:v]overlay=0:0[v]" \
+            -map "[v]" -map 2:a:0 \
             -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
@@ -162,10 +159,11 @@ run() {
                 if [ -n "$LOGO" ]; then
                     ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -loop 1 -framerate 30 -i /tmp/texts.png \
                         -loop 1 -framerate 30 -i "$LOGO" \
                         -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                        -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
-                        -map "[v]" -map 2:a:0 \
+                        -filter_complex "[0:v][1:v]overlay=0:0[b];[b][2:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
+                        -map "[v]" -map 3:a:0 \
                         -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                         -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
@@ -173,9 +171,10 @@ run() {
                 else
                     ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -loop 1 -framerate 30 -i /tmp/texts.png \
                         -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                        -vf "ass=/tmp/s.ass" \
-                        -map 0:v:0 -map 1:a:0 \
+                        -filter_complex "[0:v][1:v]overlay=0:0[v]" \
+                        -map "[v]" -map 2:a:0 \
                         -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                         -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
@@ -242,10 +241,11 @@ run() {
                 if [ -n "$LOGO" ]; then
                     ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -loop 1 -framerate 30 -i /tmp/texts.png \
                         -loop 1 -framerate 30 -i "$LOGO" \
                         -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                        -filter_complex "[0:v]ass=/tmp/s.ass[b];[1:v]scale=$LOGO_W:-2[l];[b][l]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
-                        -map "[v]" -map 2:a:0 \
+                        -filter_complex "[0:v][1:v]overlay=0:0[b];[b][2:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
+                        -map "[v]" -map 3:a:0 \
                         -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                         -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
@@ -253,9 +253,10 @@ run() {
                 else
                     ffmpeg -y -hide_banner -loglevel warning -nostdin \
                         -re -f lavfi -i "color=c=$BG:s=1920x1080:r=30" \
+                        -loop 1 -framerate 30 -i /tmp/texts.png \
                         -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-                        -vf "ass=/tmp/s.ass" \
-                        -map 0:v:0 -map 1:a:0 \
+                        -filter_complex "[0:v][1:v]overlay=0:0[v]" \
+                        -map "[v]" -map 2:a:0 \
                         -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                         -c:a aac -b:a 128k -ar 44100 -ac 2 \
                         -max_muxing_queue_size 4096 \
