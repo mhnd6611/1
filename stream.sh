@@ -1,33 +1,48 @@
 #!/bin/bash
 set +m
 
-# ═════════ إعدادات ريسبكت ═════════
+# ═════════════════════════════════════════════
+#  إعدادات البث — ريسبكت
+# ═════════════════════════════════════════════
+
+# النصوص
 TITLE="لم يبدأ ستريمرز ريسبكت البث بعد"
 SUBTITLE="جاري انتضار ستريمرز ريسبكت بدأ البث."
 LABEL="قائمة الستريمرز:"
+
+# الألوان
 COLOR_T="white"
 COLOR_S="white"
 COLOR_L="#DDDDDD"
 COLOR_OUTLINE="black"
 BG="0x140024"
+
+# أحجام الخطوط
 FS_T=82
 FS_S=56
 FS_L=30
+
+# المواضع
 Y_LIST=60
 Y_TITLE=200
 Y_SUB=370
 OUTLINE_W=4
+
+# الشعار
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
 LOGO_W=280
 LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
+
+# الخط
 FONT_NAME="Noto Naskh Arabic"
-# ══════════════════════════════════
+
+# ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
-[ -z "$RESTREAM_KEY" ] && { echo "ERR: no key"; exit 1; }
-[ -z "$STREAMERS_LIST" ] && { echo "ERR: no streamers"; exit 1; }
+[ -z "$RESTREAM_KEY" ] && { echo "❌ خطأ: مفتاح ريستريم فارغ"; exit 1; }
+[ -z "$STREAMERS_LIST" ] && { echo "❌ خطأ: قائمة الستريمرز فارغة"; exit 1; }
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
@@ -35,7 +50,7 @@ FIFO="/tmp/relay.ts"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# قائمة الستريمرز بترتيب عمودي (2-3 صفوف)
+# ═════════ قائمة الستريمرز على سطرين ═════════
 build_list_lines() {
     local total=${#STREAMERS[@]}
     local per_line=$(( (total + 1) / 2 ))
@@ -58,21 +73,22 @@ build_list_lines() {
 mapfile -t LIST_LINES < <(build_list_lines)
 LIST_LINE1="${LIST_LINES[0]}"
 LIST_LINE2="${LIST_LINES[1]}"
-echo "List L1: $LIST_LINE1"
-echo "List L2: $LIST_LINE2"
+echo "📋 السطر 1: $LIST_LINE1"
+echo "📋 السطر 2: $LIST_LINE2"
 
-# تحميل الشعار
+# ═════════ تحميل الشعار ═════════
 LOGO=""
+echo "⬇️ تحميل الشعار..."
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/dev/null; then
     if [ -s /tmp/logo_src.png ] && file /tmp/logo_src.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
         convert /tmp/logo_src.png -resize ${LOGO_W}x /tmp/logo.png 2>/dev/null
-        [ -s /tmp/logo.png ] && { LOGO="/tmp/logo.png"; echo "✅ logo OK"; }
+        [ -s /tmp/logo.png ] && { LOGO="/tmp/logo.png"; echo "✅ الشعار جاهز"; }
     fi
 fi
-[ -z "$LOGO" ] && echo "⚠️ no logo"
+[ -z "$LOGO" ] && echo "⚠️ لا يوجد شعار — سيستمر البث بدونه"
 
-# ═════════ رسم النصوص بـ ImageMagick+Pango (يدعم العربية 100%) ═════════
-echo "🖌️ rendering text..."
+# ═════════ رسم النصوص (يدعم العربية 100%) ═════════
+echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
 convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
@@ -94,12 +110,12 @@ convert -background none -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth 
     pango:"$SUBTITLE" /tmp/txt/sub.png 2>/dev/null
 
 if [ ! -s /tmp/txt/title.png ]; then
-    echo "❌ text render failed"
+    echo "❌ فشل رسم النص"
     exit 1
 fi
-echo "✅ text OK"
+echo "✅ تم رسم النصوص"
 
-# FIFO
+# ═════════ FIFO ═════════
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
@@ -107,8 +123,7 @@ exec 3<>"$FIFO"
 # ═════════ دالة بناء فلتر الانتظار ═════════
 standby_filter() {
     local logo_idx=$1
-    local audio_idx=$2
-    local list2_exists=$3
+    local list2_exists=$2
 
     local f=""
     f="[0:v][3:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
@@ -152,8 +167,9 @@ run() {
     local audio_idx=$next_idx
 
     local filter
-    filter=$(standby_filter "$logo_idx" "$audio_idx" "$list2_exists")
+    filter=$(standby_filter "$logo_idx" "$list2_exists")
 
+    echo "▶️ تشغيل منتج شاشة الانتظار..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         "${inputs[@]}" \
         -filter_complex "$filter" \
@@ -165,9 +181,13 @@ run() {
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ standby failed:"; cat /tmp/prod.log; return 1
+        echo "❌ فشل منتج الانتظار:"
+        cat /tmp/prod.log
+        return 1
     fi
+    echo "✅ منتج الانتظار شغال (PID: $PROD)"
 
+    echo "🔗 فتح اتصال مع ريستريم..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
@@ -179,31 +199,29 @@ run() {
     OUT=$!
     sleep 5
     if ! kill -0 $OUT 2>/dev/null; then
-        echo "❌ output failed:"; cat /tmp/out.log
+        echo "❌ فشل الاتصال مع ريستريم:"
+        cat /tmp/out.log
         kill -9 $PROD 2>/dev/null
         return 1
     fi
-    echo "✅ Live — PROD=$PROD OUT=$OUT"
+    echo "✅ البث مباشر — منتج=$PROD مخرج=$OUT"
 
-    ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
-        OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
-              --json databaseId -q ".[].databaseId" 2>/dev/null | \
-              awk -v m="$GITHUB_RUN_ID" '$1 < m')
-        for R in $OLD; do timeout 8 gh run cancel "$R" 2>/dev/null; done
-      fi ) >/tmp/cancel.log 2>&1 &
-
-    MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
+    MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
 
     while true; do
         if ! kill -0 $OUT 2>/dev/null; then
-            echo "⚠️ output died"; kill -9 $PROD 2>/dev/null; return 1
+            echo "⚠️ المخرج مات — إعادة التشغيل"
+            kill -9 $PROD 2>/dev/null
+            return 1
         fi
+
         if ! kill -0 $PROD 2>/dev/null; then
-            if [ "$MODE" = "LIVE" ]; then
-                MODE="NONE"; ACTIVE=""; ACTIVE_IDX=-1
+            if [ "$MODE" = "مباشر" ]; then
+                MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
             else
+                echo "🔄 إعادة تشغيل منتج الانتظار..."
                 local f2
-                f2=$(standby_filter "$logo_idx" "$audio_idx" "$list2_exists")
+                f2=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" \
                     -filter_complex "$f2" \
@@ -219,7 +237,7 @@ run() {
 
         FOUND=""; FOUND_URL=""; FOUND_IDX=-1
         LIMIT=${#STREAMERS[@]}
-        if [ "$MODE" = "LIVE" ] && [ "$ACTIVE_IDX" -ge 0 ]; then
+        if [ "$MODE" = "مباشر" ] && [ "$ACTIVE_IDX" -ge 0 ]; then
             LIMIT=$((ACTIVE_IDX + 1))
         fi
 
@@ -236,8 +254,8 @@ run() {
         done
 
         if [ -n "$FOUND" ]; then
-            if [ "$MODE" != "LIVE" ] || [ "$ACTIVE" != "$FOUND" ]; then
-                echo "🎯 -> $FOUND"
+            if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
+                echo "🎯 التحويل إلى: $FOUND"
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
@@ -257,21 +275,23 @@ run() {
                 sleep 6
 
                 if kill -0 $PROD 2>/dev/null; then
-                    MODE="LIVE"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
-                    echo "✅ $FOUND"
+                    MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
+                    echo "✅ بث مباشر: $FOUND"
                 else
-                    echo "⚠️ $FOUND failed"; tail -n 5 /tmp/prod.log; MODE="NONE"
+                    echo "⚠️ فشل الاتصال بـ $FOUND:"
+                    tail -n 5 /tmp/prod.log
+                    MODE="فارغ"
                 fi
             fi
         else
-            if [ "$MODE" != "STANDBY" ]; then
-                echo "⏳ standby"
+            if [ "$MODE" != "انتظار" ]; then
+                echo "⏳ لا يوجد بث — العودة لشاشة الانتظار"
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
 
                 local f3
-                f3=$(standby_filter "$logo_idx" "$audio_idx" "$list2_exists")
+                f3=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" \
                     -filter_complex "$f3" \
@@ -282,21 +302,24 @@ run() {
                     -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
                 PROD=$!
                 sleep 3
-                MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
+                MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1
             fi
         fi
 
         TICK=$((TICK+1))
         if [ $((TICK % 4)) -eq 0 ]; then
-            echo "[$(date -u +%H:%M:%S)] mode=$MODE OUT=$(kill -0 $OUT 2>/dev/null && echo UP || echo DOWN) PROD=$(kill -0 $PROD 2>/dev/null && echo UP || echo DOWN)"
+            OUT_STATE=$(kill -0 $OUT 2>/dev/null && echo "حي" || echo "ميت")
+            PROD_STATE=$(kill -0 $PROD 2>/dev/null && echo "حي" || echo "ميت")
+            echo "── [$(date -u +%H:%M:%S)] الوضع=$MODE | المخرج=$OUT_STATE | المنتج=$PROD_STATE ──"
         fi
         sleep 15
     done
 }
 
-echo "▶️ starting"
+# ═════════ الحلقة الخارجية — لا تنتهي ═════════
+echo "🚀 بدء التشغيل..."
 while true; do
     run
-    echo "⚠️ restart in 5s"
+    echo "⚠️ توقف الجلسة — إعادة بعد 5 ثوان..."
     sleep 5
 done
