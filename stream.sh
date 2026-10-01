@@ -38,6 +38,17 @@ RESTREAM_KEY="${RESTREAM_KEY:-}"
 [ -z "$RESTREAM_KEY" ] && { echo "❌ خطأ: مفتاح ريستريم فارغ"; exit 1; }
 [ -z "$STREAMERS_LIST" ] && { echo "❌ خطأ: قائمة الستريمرز فارغة"; exit 1; }
 
+echo "═══ فحص المتطلبات ═══"
+for TOOL in ffmpeg convert fc-list streamlink; do
+    if which "$TOOL" >/dev/null 2>&1; then
+        echo "✅ $TOOL: $(which $TOOL)"
+    else
+        echo "❌ $TOOL مفقود"
+        exit 1
+    fi
+done
+echo "═════════════════════"
+
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
@@ -84,24 +95,27 @@ mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
 convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
     -font "$FONT_NAME" -pointsize $FS_L \
-    pango:"$LABEL $LIST_LINE1" /tmp/txt/l1.png 2>/dev/null
+    pango:"$LABEL $LIST_LINE1" /tmp/txt/l1.png 2>&1 || echo "⚠️ فشل السطر 1"
 
 if [ -n "$LIST_LINE2" ]; then
     convert -background none -fill "$COLOR_L" -stroke "$COLOR_OUTLINE" -strokewidth 1 \
         -font "$FONT_NAME" -pointsize $FS_L \
-        pango:"$LIST_LINE2" /tmp/txt/l2.png 2>/dev/null
+        pango:"$LIST_LINE2" /tmp/txt/l2.png 2>&1 || echo "⚠️ فشل السطر 2"
 fi
 
 convert -background none -fill "$COLOR_T" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
     -font "$FONT_NAME" -pointsize $FS_T \
-    pango:"$TITLE" /tmp/txt/title.png 2>/dev/null
+    pango:"$TITLE" /tmp/txt/title.png 2>&1 || true
 
 convert -background none -fill "$COLOR_S" -stroke "$COLOR_OUTLINE" -strokewidth $OUTLINE_W \
     -font "$FONT_NAME" -pointsize $FS_S \
-    pango:"$SUBTITLE" /tmp/txt/sub.png 2>/dev/null
+    pango:"$SUBTITLE" /tmp/txt/sub.png 2>&1 || true
 
 if [ ! -s /tmp/txt/title.png ]; then
-    echo "❌ فشل رسم النص"; exit 1
+    echo "❌ فشل رسم العنوان — تفاصيل الخطأ:"
+    convert -background none -fill white -font "$FONT_NAME" -pointsize $FS_T pango:"$TITLE" /tmp/txt/title.png
+    ls -la /tmp/txt/
+    exit 1
 fi
 echo "✅ تم رسم النصوص"
 
@@ -167,7 +181,9 @@ run() {
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ فشل منتج الانتظار:"; cat /tmp/prod.log; return 1
+        echo "❌ فشل منتج الانتظار:"
+        cat /tmp/prod.log
+        return 1
     fi
     echo "✅ منتج الانتظار شغال (PID: $PROD)"
 
@@ -183,7 +199,8 @@ run() {
     OUT=$!
     sleep 5
     if ! kill -0 $OUT 2>/dev/null; then
-        echo "❌ فشل الاتصال مع ريستريم:"; cat /tmp/out.log
+        echo "❌ فشل الاتصال مع ريستريم:"
+        cat /tmp/out.log
         kill -9 $PROD 2>/dev/null
         return 1
     fi
@@ -203,16 +220,20 @@ run() {
 
     while true; do
         if ! kill -0 $OUT 2>/dev/null; then
-            echo "⚠️ المخرج مات — إعادة"; kill -9 $PROD 2>/dev/null; return 1
+            echo "⚠️ المخرج مات — إعادة"
+            kill -9 $PROD 2>/dev/null
+            return 1
         fi
 
         if ! kill -0 $PROD 2>/dev/null; then
             if [ "$MODE" = "مباشر" ]; then
                 MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
             else
-                local f2; f2=$(standby_filter "$logo_idx" "$list2_exists")
+                local f2
+                f2=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" -filter_complex "$f2" \
+                    "${inputs[@]}" \
+                    -filter_complex "$f2" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -236,7 +257,8 @@ run() {
                   --stream-timeout 15 "https://kick.com/$S" best \
                   --stream-url 2>/dev/null | grep -m1 "^http")
             if [ -n "$URL" ]; then
-                FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i; break
+                FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i
+                break
             fi
         done
 
@@ -265,7 +287,9 @@ run() {
                     MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
                     echo "✅ بث مباشر: $FOUND"
                 else
-                    echo "⚠️ فشل الاتصال بـ $FOUND:"; tail -n 5 /tmp/prod.log; MODE="فارغ"
+                    echo "⚠️ فشل الاتصال بـ $FOUND:"
+                    tail -n 5 /tmp/prod.log
+                    MODE="فارغ"
                 fi
             fi
         else
@@ -274,9 +298,12 @@ run() {
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
-                local f3; f3=$(standby_filter "$logo_idx" "$list2_exists")
+
+                local f3
+                f3=$(standby_filter "$logo_idx" "$list2_exists")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" -filter_complex "$f3" \
+                    "${inputs[@]}" \
+                    -filter_complex "$f3" \
                     -map "[v]" -map ${audio_idx}:a:0 \
                     -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
                     -c:a aac -b:a 128k -ar 44100 -ac 2 \
