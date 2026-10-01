@@ -3,27 +3,18 @@ name: 24/7 Master Multi-Streamer Broadcast
 on:
   workflow_dispatch:
     inputs:
-      streamers_list:
-        description: 'قائمة الستريمرز'
-        required: true
-        default: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Hook,okb8'
       restream_key:
-        description: 'مفتاح ريستريم'
         required: false
         default: 're_12416925_event6f6e2607a46347b59efab0c722ed3e53'
-      quality:
-        description: 'جودة البث'
-        required: true
-        default: 'best'
   schedule:
-    - cron: '0 */5 * * *'
+    - cron: '0 */6 * * *'
 
 permissions:
   actions: write
   contents: read
 
 jobs:
-  broadcaster:
+  broadcast:
     runs-on: ubuntu-latest
     timeout-minutes: 355
 
@@ -34,48 +25,35 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-v2
+          key: pip-v1
 
-      - name: Install deps
+      - name: Install
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-sil-scheherazade fontconfig libass-dev
-          pip3 install --user --upgrade streamlink
-          sudo fc-cache -f -v >/dev/null 2>&1
-          ffmpeg -version | head -1
+          pip3 install --user -q --upgrade streamlink
+          sudo fc-cache -f >/dev/null 2>&1
 
-      - name: Add local bin to PATH
+      - name: Path
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Self-schedule next run (5h40m)
+      - name: Schedule next run (5h30m)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          STREAMERS="${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}"
           RKEY="${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}"
-          QUAL="${{ github.event.inputs.quality || 'best' }}"
           setsid nohup bash -c "
-            sleep 20400
-            gh workflow run main.yml --ref '${{ github.ref_name }}' \
-              -f streamers_list='$STREAMERS' \
-              -f restream_key='$RKEY' \
-              -f quality='$QUAL'
-          " >/tmp/self_trigger.log 2>&1 < /dev/null &
-          echo "scheduled"
+            sleep 19800
+            gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
+          " >/tmp/sched.log 2>&1 < /dev/null &
+          echo "OK"
 
-      - name: Run broadcast
+      - name: Broadcast
         env:
-          STREAMERS_LIST: ${{ github.event.inputs.streamers_list || 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,hook,okb8' }}
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
-          STREAM_QUALITY: ${{ github.event.inputs.quality || 'best' }}
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,W1pey,ALRND,Hook,okb8'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x stream.sh
           ./stream.sh
-
-      - name: Final diagnostics
-        if: always()
-        run: |
-          echo "===== OUT ====="; tail -n 50 /tmp/ffmpeg_out.log 2>/dev/null || echo "empty"
-          echo "===== IN ====="; tail -n 50 /tmp/ffmpeg_in.log 2>/dev/null || echo "empty"
