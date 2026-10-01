@@ -2,7 +2,7 @@
 set +m
 
 # ==============================================================================
-# ⚙️⚙️⚙️  إعدادات شاشة الانتظار — ريسبكت (drb7h)  ⚙️⚙️⚙️
+# ⚙️⚙️⚙️  إعدادات شاشة الانتظار — ريسبكت  ⚙️⚙️⚙️
 # ==============================================================================
 
 STANDBY_TITLE="لم يبدأ ستريمرز ريسبكت البث بعد"
@@ -11,7 +11,6 @@ STANDBY_SUBTITLE="جاري انتضار ستريمرز ريسبكت بدأ ال�
 STANDBY_EXTRA_ENABLED="no"
 STANDBY_EXTRA=""
 
-# ألوان النصوص (بصيغة &HAABBGGRR)
 COLOR_TITLE="&H00FEB4D8"
 COLOR_SUBTITLE="&H00F755A8"
 COLOR_EXTRA="&H00F755A8"
@@ -21,10 +20,8 @@ COLOR_SHADOW="&H00000000"
 OUTLINE_SIZE=2
 SHADOW_SIZE=1
 
-# خلفية الشاشة (hex RRGGBB)
 BG_COLOR="0x140024"
 
-# أحجام النصوص (تم تكبيرها)
 FONT_SIZE_TITLE=78
 FONT_SIZE_SUBTITLE=54
 FONT_SIZE_EXTRA=54
@@ -33,11 +30,11 @@ POS_TITLE=420
 POS_SUBTITLE=520
 POS_EXTRA=580
 
-# رابط صورة الشعار
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
 LOGO_FILE="/tmp/logo.png"
+LOGO_WIDTH=380
+LOGO_BOTTOM_MARGIN=80
 
-# مدة ظهور الشعار (ثواني) ومدة الدورة الكاملة (ثواني)
 LOGO_SHOW_DURATION=5
 LOGO_CYCLE=7
 
@@ -54,12 +51,19 @@ echo "🔑 مفتاح ريستريم يبدأ بـ: ${RESTREAM_KEY:0:10}..."
 echo "🔧 ffmpeg: $(which ffmpeg) — $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}')"
 echo "🔧 streamlink: $(which streamlink) — $(streamlink --version 2>&1)"
 
-# تحميل الشعار
-echo "⬇️ تحميل شعار ريسبكت..."
-curl -sL "$LOGO_URL" -o "$LOGO_FILE" || wget -q "$LOGO_URL" -O "$LOGO_FILE"
+echo "⬇️ تحميل شعار..."
+curl -sL --max-time 20 -A "Mozilla/5.0" "$LOGO_URL" -o "$LOGO_FILE" || true
 if [ ! -s "$LOGO_FILE" ]; then
     echo "⚠️ فشل تحميل الشعار — سيعمل البث بدونه."
     LOGO_FILE=""
+else
+    if file "$LOGO_FILE" | grep -qiE "PNG|JPEG|JPG|image"; then
+        echo "✅ الشعار صالح: $(file -b "$LOGO_FILE")"
+    else
+        echo "⚠️ الملف ليس صورة (ربما HTML) — تجاهل الشعار."
+        head -c 200 "$LOGO_FILE"; echo ""
+        LOGO_FILE=""
+    fi
 fi
 
 IFS=',' read -r -a STREAMERS_RANK <<< "$STREAMERS_LIST"
@@ -184,21 +188,20 @@ start_producer_standby() {
     stop_producer
     generate_ass
     echo "⏳ منتج شاشة الانتظار..."
-    
+
     if [ -n "$LOGO_FILE" ]; then
-        # مع الشعار: مدخلان للفيديو (خلفية + شعار) ومدخل للصوت
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
           -re -f lavfi -i color=c=${BG_COLOR}:s=1920x1080:r=30 \
           -loop 1 -i "$LOGO_FILE" \
           -f lavfi -i anullsrc=r=44100:cl=stereo \
-          -filter_complex "[0:v]ass=/tmp/standby.ass[base];[1:v]scale=380:-1[logo];[base][logo]overlay=x=(W-w)/2:y=H-h-80:enable='between(t,0,${LOGO_SHOW_DURATION})'+between(t,${LOGO_CYCLE},$((LOGO_CYCLE+LOGO_SHOW_DURATION)))+between(t,$((LOGO_CYCLE*2)),$((LOGO_CYCLE*2+LOGO_SHOW_DURATION)))+between(t,$((LOGO_CYCLE*3)),$((LOGO_CYCLE*3+LOGO_SHOW_DURATION)))[vout]" \
+          -filter_complex "[0:v]ass=/tmp/standby.ass[base];[1:v]scale=${LOGO_WIDTH}:-2[logo];[base][logo]overlay=x=(W-w)/2:y=H-h-${LOGO_BOTTOM_MARGIN}:enable='lt(mod(t\,${LOGO_CYCLE})\,${LOGO_SHOW_DURATION})'[vout]" \
           -map "[vout]" -map 2:a:0 \
           -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -r 30 -g 60 \
           -c:a aac -b:a 128k -ar 44100 -ac 2 \
           -max_muxing_queue_size 4096 \
           -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
+        PRODUCER_PID=$!
     else
-        # بدون شعار
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
           -re -f lavfi -i color=c=${BG_COLOR}:s=1920x1080:r=30 \
           -f lavfi -i anullsrc=r=44100:cl=stereo \
@@ -208,8 +211,17 @@ start_producer_standby() {
           -c:a aac -b:a 128k -ar 44100 -ac 2 \
           -max_muxing_queue_size 4096 \
           -f mpegts "$FIFO" >/tmp/ffmpeg_in.log 2>&1 &
+        PRODUCER_PID=$!
     fi
-    PRODUCER_PID=$!
+
+    sleep 3
+    if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
+        echo "❌ منتج الانتظار مات فوراً! التفاصيل:"
+        cat /tmp/ffmpeg_in.log
+        PRODUCER_PID=""
+        return 1
+    fi
+    return 0
 }
 
 start_producer_live() {
@@ -247,6 +259,8 @@ CURRENT_MODE="STANDBY"
 ( cancel_old_runs ) >/tmp/cancel_old.log 2>&1 &
 
 sleep 2
+
+DIAG_TICK=0
 
 while true; do
     if ! kill -0 "$OUTPUT_PID" 2>/dev/null; then
@@ -310,6 +324,14 @@ while true; do
             CURRENT_ACTIVE_STREAMER=""
             CURRENT_ACTIVE_INDEX=-1
         fi
+    fi
+
+    DIAG_TICK=$((DIAG_TICK + 1))
+    if [ $((DIAG_TICK % 4)) -eq 0 ]; then
+        echo "── DIAG $(date -u +%H:%M:%S)Z ──"
+        echo "OUT: $(kill -0 $OUTPUT_PID 2>/dev/null && echo حي || echo ميت) | PROD: $(kill -0 $PRODUCER_PID 2>/dev/null && echo حي || echo ميت)"
+        echo "OUT log: $(tail -n 1 /tmp/ffmpeg_out.log 2>/dev/null || echo فارغ)"
+        echo "IN  log: $(tail -n 1 /tmp/ffmpeg_in.log 2>/dev/null || echo فارغ)"
     fi
 
     sleep 15
