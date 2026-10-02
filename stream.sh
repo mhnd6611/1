@@ -17,7 +17,7 @@ BG="0x140024"
 
 FS_T=82
 FS_S=56
-FS_L=30
+FS_L=28
 
 Y_LIST=60
 Y_TITLE=200
@@ -30,7 +30,7 @@ LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
 
-# ─── إعلان الستريمر (يظهر فقط أثناء البث المباشر) ───
+# نصوص الإعلان
 ANN_TEXT_1="سابثون بثوث ريسبكت"
 ANN_TEXT_2="البث مستمر"
 ANN_TEXT_3="بثوث شباب ريسبكت"
@@ -44,31 +44,22 @@ UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Ge
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
 
-# ─── خط يدعم العربية + الإنجليزية معاً ───
+# اكتشاف الخط
 FONT_FILE=""
 for CANDIDATE in \
     "$HOME/.fonts/NotoSansArabic-Bold.ttf" \
-    "$HOME/.fonts/Cairo-Bold.ttf" \
-    "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf" ; do
+    "$HOME/.fonts/NotoNaskhArabic-Regular.ttf"; do
     if [ -s "$CANDIDATE" ]; then
         FONT_FILE="$CANDIDATE"
         break
     fi
 done
-if [ -z "$FONT_FILE" ]; then
-    echo "⬇️ تحميل خط Noto Sans Arabic Bold..."
-    mkdir -p ~/.fonts
-    curl -sL --max-time 30 \
-      "https://github.com/notofonts/arabic/raw/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf" \
-      -o "$HOME/.fonts/NotoSansArabic-Bold.ttf" 2>/dev/null
-    [ -s "$HOME/.fonts/NotoSansArabic-Bold.ttf" ] && FONT_FILE="$HOME/.fonts/NotoSansArabic-Bold.ttf"
-fi
-[ -z "$FONT_FILE" ] && { echo "❌ فشل تحميل الخط"; exit 1; }
+[ -z "$FONT_FILE" ] && { echo "❌ لا يوجد خط"; exit 1; }
 echo "🔤 الخط: $FONT_FILE"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# ═════════ سكربت بايثون: رسم النصوص الثابتة ═════════
+# ═════════ سكربت رسم النص الثابت ═════════
 cat > /tmp/render.py <<'PYEOF'
 import sys
 from PIL import Image, ImageDraw, ImageFont
@@ -91,7 +82,6 @@ th = bbox[3] - bbox[1]
 pad = max(outline_w, 5) + 10
 W = tw + pad * 2
 H = th + pad * 2
-
 img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
 x = pad - bbox[0]
@@ -100,8 +90,8 @@ y = pad - bbox[1]
 if outline_color and outline_w > 0:
     for dx in range(-outline_w, outline_w + 1):
         for dy in range(-outline_w, outline_w + 1):
-            if dx*dx + dy*dy <= outline_w*outline_w:
-                d.text((x+dx, y+dy), text, font=font, fill=outline_color, direction="rtl")
+            if dx * dx + dy * dy <= outline_w * outline_w:
+                d.text((x + dx, y + dy), text, font=font, fill=outline_color, direction="rtl")
 
 d.text((x, y), text, font=font, fill=color, direction="rtl")
 img.save(output, "PNG")
@@ -111,10 +101,10 @@ render_text() {
     python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_FILE" "$5" "$6"
 }
 
-# ═════════ سكربت بايثون: فيديو الإعلان ═════════
+# ═════════ سكربت فيديو الإعلان ═════════
 cat > /tmp/make_announcement.py <<'PYEOF'
 import sys, os, subprocess
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 streamer = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else "streamer"
 font_path = sys.argv[2]
@@ -124,13 +114,13 @@ t1, t2, t3 = sys.argv[4], sys.argv[5], sys.argv[6]
 fps = 30
 duration_per = 5
 cycle = 4
-W, H = 1920, 260
-font_size = 42
+W, H = 1920, 300
+font_size = 52
 font = ImageFont.truetype(font_path, font_size)
 
-color = (0, 255, 136, 255)
-outline = (0, 51, 24, 255)
-ow = 3
+color = (0, 255, 0, 255)
+outline = (0, 20, 0, 255)
+glow_color = (0, 255, 100, 180)
 
 texts = [t1, t2, t3, f"بث {streamer}"]
 
@@ -138,18 +128,31 @@ def render_one(text):
     tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
     d = ImageDraw.Draw(tmp)
     bbox = d.textbbox((0, 0), text, font=font, direction="rtl")
-    tw = bbox[2] - bbox[0]; th = bbox[3] - bbox[1]
-    pad = ow + 8
-    W_img = tw + pad*2; H_img = th + pad*2
-    img = Image.new("RGBA", (W_img, H_img), (0,0,0,0))
-    d = ImageDraw.Draw(img)
-    x = pad - bbox[0]; y = pad - bbox[1]
-    for dx in range(-ow, ow+1):
-        for dy in range(-ow, ow+1):
-            if dx*dx + dy*dy <= ow*ow:
-                d.text((x+dx, y+dy), text, font=font, fill=outline, direction="rtl")
-    d.text((x, y), text, font=font, fill=color, direction="rtl")
-    return img
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    pad = 25
+    W_img = tw + pad * 2
+    H_img = th + pad * 2
+
+    glow = Image.new("RGBA", (W_img, H_img), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gx = pad - bbox[0]
+    gy = pad - bbox[1]
+    gd.text((gx, gy), text, font=font, fill=glow_color, direction="rtl")
+    glow = glow.filter(ImageFilter.GaussianBlur(8))
+
+    base = Image.new("RGBA", (W_img, H_img), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(base)
+    ow = 4
+    for dx in range(-ow, ow + 1):
+        for dy in range(-ow, ow + 1):
+            if dx * dx + dy * dy <= ow * ow:
+                bd.text((gx + dx, gy + dy), text, font=font, fill=outline, direction="rtl")
+
+    bd.text((gx, gy), text, font=font, fill=color, direction="rtl")
+    final = Image.alpha_composite(glow, base)
+    return final
 
 text_imgs = [render_one(t) for t in texts]
 total_frames = fps * duration_per * cycle
@@ -162,26 +165,27 @@ for i in range(total_frames):
 
     if lt < 0.5:
         p = lt / 0.5
-        alpha = int(255*p); y_off = int(30*(1-p)); scale = 0.7 + 0.3*p
+        alpha = int(255 * p); y_off = int(35 * (1 - p)); scale = 0.7 + 0.3 * p
     elif lt < 4.5:
         alpha = 255; y_off = 0; scale = 1.0
     else:
-        p = (lt-4.5)/0.5
-        alpha = int(255*(1-p)); y_off = int(-25*p); scale = 1.0 - 0.15*p
+        p = (lt - 4.5) / 0.5
+        alpha = int(255 * (1 - p)); y_off = int(-30 * p); scale = 1.0 - 0.15 * p
 
-    canvas = Image.new("RGBA", (W, H), (0,0,0,0))
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     txt = text_imgs[idx]
     tw, th = txt.size
     if scale != 1.0:
-        nw, nh = max(1, int(tw*scale)), max(1, int(th*scale))
+        nw, nh = max(1, int(tw * scale)), max(1, int(th * scale))
         txt = txt.resize((nw, nh), Image.LANCZOS)
     else:
         nw, nh = tw, th
     if alpha < 255:
-        a = txt.split()[3].point(lambda x: int(x*alpha/255))
+        a = txt.split()[3].point(lambda x: int(x * alpha / 255))
         txt.putalpha(a)
-    x = (W-nw)//2; y = H-nh-20+y_off
-    canvas.paste(txt, (x,y), txt)
+    x = (W - nw) // 2
+    y = H - nh - 15 + y_off
+    canvas.paste(txt, (x, y), txt)
     canvas.save(f"/tmp/ann_frames/f_{i:04d}.png")
 
 subprocess.run([
@@ -196,26 +200,33 @@ for f in os.listdir("/tmp/ann_frames"):
     os.remove(f"/tmp/ann_frames/{f}")
 PYEOF
 
-# ═════════ قائمة الستريمرز ═════════
+# ═════════ قائمة الستريمرز (3 أسطر) ═════════
 build_list_lines() {
     local total=${#STREAMERS[@]}
-    local per_line=$(( (total + 1) / 2 ))
+    local per_line=$(( (total + 2) / 3 ))
     [ $per_line -lt 4 ] && per_line=4
-    local line1="" line2="" i=0
+    local line1="" line2="" line3="" i=0
     for S in "${STREAMERS[@]}"; do
-        S=$(echo "$S" | xargs); [ -z "$S" ] && continue
+        S=$(echo "$S" | xargs)
+        [ -z "$S" ] && continue
         if [ $i -lt $per_line ]; then
             [ -z "$line1" ] && line1="$S" || line1="$line1 · $S"
-        else
+        elif [ $i -lt $((per_line * 2)) ]; then
             [ -z "$line2" ] && line2="$S" || line2="$line2 · $S"
+        else
+            [ -z "$line3" ] && line3="$S" || line3="$line3 · $S"
         fi
         i=$((i+1))
     done
-    echo "$line1"; echo "$line2"
+    echo "$line1"
+    echo "$line2"
+    echo "$line3"
 }
+
 mapfile -t LIST_LINES < <(build_list_lines)
 LIST_LINE1="${LIST_LINES[0]}"
 LIST_LINE2="${LIST_LINES[1]}"
+LIST_LINE3="${LIST_LINES[2]}"
 
 # ═════════ الشعار ═════════
 LOGO=""
@@ -227,17 +238,20 @@ if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/d
 fi
 [ -z "$LOGO" ] && echo "⚠️ بلا شعار"
 
-# ═════════ رسم نصوص الشاشة ═════════
+# ═════════ رسم النصوص الثابتة ═════════
 echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
+
 render_text "$LABEL $LIST_LINE1" "#DDDDDD" $FS_L /tmp/txt/l1.png "black" 1
 [ -n "$LIST_LINE2" ] && render_text "$LIST_LINE2" "#DDDDDD" $FS_L /tmp/txt/l2.png "black" 1
+[ -n "$LIST_LINE3" ] && render_text "$LIST_LINE3" "#DDDDDD" $FS_L /tmp/txt/l3.png "black" 1
 render_text "$TITLE" "white" $FS_T /tmp/txt/title.png "black" $OUTLINE_W
 render_text "$SUBTITLE" "white" $FS_S /tmp/txt/sub.png "black" $OUTLINE_W
+
 [ ! -s /tmp/txt/title.png ] && { echo "❌ فشل الرسم"; exit 1; }
 echo "✅ اكتمل الرسم"
 
-# ═════════ إنشاء إعلان لستريمر ═════════
+# ═════════ إنشاء إعلان ═════════
 make_announcement() {
     local NAME="$1"
     local OUT_FILE="$2"
@@ -251,48 +265,58 @@ rm -f "$FIFO"; mkfifo "$FIFO"; exec 3<>"$FIFO"
 # ═════════ فلتر شاشة الانتظار (بدون إعلان) ═════════
 standby_filter() {
     local logo_idx=$1
-    local list2_exists=$2
+    local n2=$2
+    local n3=$3
     local f=""
     f="[0:v][3:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
-    if [ "$list2_exists" = "1" ]; then
-        f="$f;[a][4:v]overlay=x=(W-w)/2:y=$((Y_LIST + FS_L + 15))[b]"
-        local n="b"
-    else
-        local n="a"
+    local next="a"
+    local idx=4
+    if [ "$n2" = "1" ]; then
+        f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$((Y_LIST + FS_L + 15))[b]"
+        next="b"
+        idx=$((idx + 1))
     fi
-    f="$f;[${n}][1:v]overlay=x=(W-w)/2:y=$Y_TITLE[c]"
-    f="$f;[c][2:v]overlay=x=(W-w)/2:y=$Y_SUB[d]"
+    if [ "$n3" = "1" ]; then
+        f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$((Y_LIST + (FS_L + 15) * 2))[c]"
+        next="c"
+        idx=$((idx + 1))
+    fi
+    f="$f;[${next}][1:v]overlay=x=(W-w)/2:y=$Y_TITLE[d]"
+    f="$f;[d][2:v]overlay=x=(W-w)/2:y=$Y_SUB[e]"
     if [ "$logo_idx" -ge 0 ]; then
-        f="$f;[d][${logo_idx}:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]"
+        f="$f;[e][${logo_idx}:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]"
     else
-        f="$f;[d]null[v]"
+        f="$f;[e]null[v]"
     fi
     echo "$f"
 }
 
 run() {
-    # منتج الانتظار
     local inputs=()
     inputs+=(-re -f lavfi -i "color=c=$BG:s=1920x1080:r=30")
     inputs+=(-loop 1 -framerate 30 -i /tmp/txt/title.png)
     inputs+=(-loop 1 -framerate 30 -i /tmp/txt/sub.png)
     inputs+=(-loop 1 -framerate 30 -i /tmp/txt/l1.png)
     local next_idx=4
-    local list2_exists=0
+    local n2=0; local n3=0
     if [ -s /tmp/txt/l2.png ]; then
         inputs+=(-loop 1 -framerate 30 -i /tmp/txt/l2.png)
-        list2_exists=1; next_idx=5
+        n2=1; next_idx=$((next_idx + 1))
+    fi
+    if [ -s /tmp/txt/l3.png ]; then
+        inputs+=(-loop 1 -framerate 30 -i /tmp/txt/l3.png)
+        n3=1; next_idx=$((next_idx + 1))
     fi
     local logo_idx=-1
     if [ -n "$LOGO" ]; then
         inputs+=(-loop 1 -framerate 30 -i "$LOGO")
-        logo_idx=$next_idx; next_idx=$((next_idx+1))
+        logo_idx=$next_idx; next_idx=$((next_idx + 1))
     fi
     inputs+=(-f lavfi -i "anullsrc=r=44100:cl=stereo")
     local audio_idx=$next_idx
 
     local filter
-    filter=$(standby_filter "$logo_idx" "$list2_exists")
+    filter=$(standby_filter "$logo_idx" "$n2" "$n3")
 
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         "${inputs[@]}" -filter_complex "$filter" \
@@ -346,7 +370,7 @@ run() {
                 MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
             else
                 local f2
-                f2=$(standby_filter "$logo_idx" "$list2_exists")
+                f2=$(standby_filter "$logo_idx" "$n2" "$n3")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" -filter_complex "$f2" \
                     -map "[v]" -map ${audio_idx}:a:0 \
@@ -378,7 +402,7 @@ run() {
         if [ -n "$FOUND" ]; then
             if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
                 echo "🎯 $FOUND"
-                # ─── إنشاء إعلان خاص بهذا الستريمر ───
+
                 ANN_VIDEO="/tmp/ann_${FOUND}.mov"
                 if [ ! -s "$ANN_VIDEO" ]; then
                     echo "🎬 إنتاج إعلان $FOUND..."
@@ -434,7 +458,7 @@ run() {
                 wait $PROD 2>/dev/null
                 sleep 1
                 local f3
-                f3=$(standby_filter "$logo_idx" "$list2_exists")
+                f3=$(standby_filter "$logo_idx" "$n2" "$n3")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" -filter_complex "$f3" \
                     -map "[v]" -map ${audio_idx}:a:0 \
