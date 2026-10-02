@@ -30,6 +30,16 @@ LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
 
+# ─── إعدادات شريط الإعلانات ───
+ANN_TEXT_1="سابثون بثوث ريسبكت"
+ANN_TEXT_2="البث مستمر"
+ANN_TEXT_3="بثوث شباب ريسبكت"
+ANN_DURATION=5
+ANN_CYCLE=20
+ANN_FONT_SIZE=42
+ANN_COLOR="#00ff88"
+ANN_OUTLINE="#003318"
+ANN_BOTTOM_MARGIN=40
 # ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -46,7 +56,7 @@ echo "🔤 الخط: $FONT_FILE"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# ═════════ سكربت رسم النص بـ Pillow ═════════
+# ═════════ سكربت بايثون: رسم النصوص ═════════
 cat > /tmp/render.py <<'PYEOF'
 import sys
 from PIL import Image, ImageDraw, ImageFont
@@ -60,8 +70,6 @@ outline_color = sys.argv[6] if len(sys.argv) > 6 else None
 outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
 
 font = ImageFont.truetype(font_path, pointsize)
-
-# قياس
 tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
 d = ImageDraw.Draw(tmp)
 bbox = d.textbbox((0, 0), text, font=font, direction="rtl")
@@ -74,26 +82,134 @@ H = th + pad * 2
 
 img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
-
 x = pad - bbox[0]
 y = pad - bbox[1]
 
-# حد خارجي
 if outline_color and outline_w > 0:
     for dx in range(-outline_w, outline_w + 1):
         for dy in range(-outline_w, outline_w + 1):
             if dx * dx + dy * dy <= outline_w * outline_w:
                 d.text((x + dx, y + dy), text, font=font, fill=outline_color, direction="rtl")
 
-# النص
 d.text((x, y), text, font=font, fill=color, direction="rtl")
-
 img.save(output, "PNG")
 PYEOF
 
 render_text() {
     python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_FILE" "$5" "$6"
 }
+
+# ═════════ سكربت بايثون: إنتاج فيديو الإعلان ═════════
+cat > /tmp/make_announcement.py <<'PYEOF'
+import sys
+from PIL import Image, ImageDraw, ImageFont
+import subprocess
+import os
+
+streamer = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else "قريباً"
+font_path = sys.argv[2]
+output = sys.argv[3]
+t1 = sys.argv[4]
+t2 = sys.argv[5]
+t3 = sys.argv[6]
+fps = 30
+duration_per = 5
+cycle = 4
+bottom_margin = 40
+
+texts = [t1, t2, t3, f"بث {streamer}"]
+
+W, H = 1920, 260
+font_size = 42
+font = ImageFont.truetype(font_path, font_size)
+
+color = (0, 255, 136, 255)
+outline = (0, 51, 24, 255)
+outline_w = 3
+
+def render_one(text):
+    tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tmp)
+    bbox = d.textbbox((0, 0), text, font=font, direction="rtl")
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    pad = outline_w + 8
+    W_img = tw + pad * 2
+    H_img = th + pad * 2
+    img = Image.new("RGBA", (W_img, H_img), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    x = pad - bbox[0]
+    y = pad - bbox[1]
+    for dx in range(-outline_w, outline_w + 1):
+        for dy in range(-outline_w, outline_w + 1):
+            if dx*dx + dy*dy <= outline_w*outline_w:
+                d.text((x+dx, y+dy), text, font=font, fill=outline, direction="rtl")
+    d.text((x, y), text, font=font, fill=color, direction="rtl")
+    return img
+
+text_imgs = [render_one(t) for t in texts]
+total_frames = fps * duration_per * cycle
+os.makedirs("/tmp/ann_frames", exist_ok=True)
+
+for i in range(total_frames):
+    t = i / fps
+    idx = int(t / duration_per) % cycle
+    lt = t % duration_per
+
+    if lt < 0.5:
+        p = lt / 0.5
+        alpha = int(255 * p)
+        y_off = int(30 * (1 - p))
+        scale = 0.7 + 0.3 * p
+    elif lt < 4.5:
+        alpha = 255
+        y_off = 0
+        scale = 1.0
+    else:
+        p = (lt - 4.5) / 0.5
+        alpha = int(255 * (1 - p))
+        y_off = int(-25 * p)
+        scale = 1.0 - 0.15 * p
+
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    txt = text_imgs[idx]
+    tw, th = txt.size
+
+    if scale != 1.0:
+        nw, nh = max(1, int(tw * scale)), max(1, int(th * scale))
+        txt = txt.resize((nw, nh), Image.LANCZOS)
+    else:
+        nw, nh = tw, th
+
+    if alpha < 255:
+        a = txt.split()[3].point(lambda x: int(x * alpha / 255))
+        txt.putalpha(a)
+
+    x = (W - nw) // 2
+    y = H - nh - 20 + y_off
+    canvas.paste(txt, (x, y), txt)
+    canvas.save(f"/tmp/ann_frames/f_{i:04d}.png")
+
+subprocess.run([
+    "ffmpeg", "-y", "-loglevel", "error",
+    "-framerate", str(fps),
+    "-i", "/tmp/ann_frames/f_%04d.png",
+    "-c:v", "qtrle", "-pix_fmt", "argb",
+    output
+], check=True)
+print(f"OK: {output}")
+
+# تنظيف
+for f in os.listdir("/tmp/ann_frames"):
+    os.remove(f"/tmp/ann_frames/{f}")
+PYEOF
+
+# ═════════ إنتاج الإعلان الأولي (ستريمر أول القائمة) ═════════
+echo "🎬 إنتاج فيديو الإعلان..."
+ANN_VIDEO="/tmp/announcement.mov"
+python3 /tmp/make_announcement.py "${STREAMERS[0]}" "$FONT_FILE" "$ANN_VIDEO" \
+    "$ANN_TEXT_1" "$ANN_TEXT_2" "$ANN_TEXT_3"
+[ ! -s "$ANN_VIDEO" ] && { echo "⚠️ فشل الإعلان — سيُستمر بدونه"; ANN_VIDEO=""; }
 
 # ═════════ قائمة الستريمرز ═════════
 build_list_lines() {
@@ -130,23 +246,34 @@ if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/d
 fi
 [ -z "$LOGO" ] && echo "⚠️ بلا شعار"
 
-# ═════════ رسم النصوص ═════════
+# ═════════ رسم نصوص الشاشة ═════════
 echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
-render_text "$LABEL $LIST_LINE1" "#DDDDDD" $FS_L /tmp/txt/l1.png "black" 1 && echo "✅ L1" || echo "⚠️ L1 فشل"
-if [ -n "$LIST_LINE2" ]; then
-    render_text "$LIST_LINE2" "#DDDDDD" $FS_L /tmp/txt/l2.png "black" 1 && echo "✅ L2" || echo "⚠️ L2 فشل"
-fi
-render_text "$TITLE" "white" $FS_T /tmp/txt/title.png "black" $OUTLINE_W && echo "✅ عنوان" || echo "⚠️ عنوان فشل"
-render_text "$SUBTITLE" "white" $FS_S /tmp/txt/sub.png "black" $OUTLINE_W && echo "✅ سطر" || echo "⚠️ سطر فشل"
+render_text "$LABEL $LIST_LINE1" "#DDDDDD" $FS_L /tmp/txt/l1.png "black" 1
+[ -n "$LIST_LINE2" ] && render_text "$LIST_LINE2" "#DDDDDD" $FS_L /tmp/txt/l2.png "black" 1
+render_text "$TITLE" "white" $FS_T /tmp/txt/title.png "black" $OUTLINE_W
+render_text "$SUBTITLE" "white" $FS_S /tmp/txt/sub.png "black" $OUTLINE_W
 
 if [ ! -s /tmp/txt/title.png ]; then
-    echo "❌ فشل الرسم — إنهاء"
-    exit 1
+    echo "❌ فشل الرسم"; exit 1
 fi
 echo "✅ اكتمل الرسم"
 
+# ═════════ تحديث الإعلان عند تغيير الستريمر ═════════
+update_announcement() {
+    local NEW_NAME="$1"
+    local NEW_VIDEO="/tmp/announcement.mov"
+    local TMP_VIDEO="/tmp/announcement_tmp.mov"
+    python3 /tmp/make_announcement.py "$NEW_NAME" "$FONT_FILE" "$TMP_VIDEO" \
+        "$ANN_TEXT_1" "$ANN_TEXT_2" "$ANN_TEXT_3" 2>/dev/null
+    if [ -s "$TMP_VIDEO" ]; then
+        mv "$TMP_VIDEO" "$NEW_VIDEO"
+        echo "✅ تم تحديث الإعلان: $NEW_NAME"
+    fi
+}
+
+# ═════════ FIFO ═════════
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
@@ -154,6 +281,7 @@ exec 3<>"$FIFO"
 standby_filter() {
     local logo_idx=$1
     local list2_exists=$2
+    local ann_idx=$3
     local f=""
     f="[0:v][3:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
     if [ "$list2_exists" = "1" ]; then
@@ -165,9 +293,16 @@ standby_filter() {
     f="$f;[${next}][1:v]overlay=x=(W-w)/2:y=$Y_TITLE[c]"
     f="$f;[c][2:v]overlay=x=(W-w)/2:y=$Y_SUB[d]"
     if [ "$logo_idx" -ge 0 ]; then
-        f="$f;[d][${logo_idx}:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]"
+        f="$f;[d][${logo_idx}:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[e]"
+        local next2="e"
     else
-        f="$f;[d]null[v]"
+        f="$f;[d]null[e]"
+        local next2="e"
+    fi
+    if [ "$ann_idx" -ge 0 ]; then
+        f="$f;[${next2}][${ann_idx}:v]overlay=x=0:y=H-260[v]"
+    else
+        f="$f;[${next2}]null[v]"
     fi
     echo "$f"
 }
@@ -191,11 +326,17 @@ run() {
         logo_idx=$next_idx
         next_idx=$((next_idx + 1))
     fi
+    local ann_idx=-1
+    if [ -s "$ANN_VIDEO" ]; then
+        inputs+=(-stream_loop -1 -i "$ANN_VIDEO")
+        ann_idx=$next_idx
+        next_idx=$((next_idx + 1))
+    fi
     inputs+=(-f lavfi -i "anullsrc=r=44100:cl=stereo")
     local audio_idx=$next_idx
 
     local filter
-    filter=$(standby_filter "$logo_idx" "$list2_exists")
+    filter=$(standby_filter "$logo_idx" "$list2_exists" "$ann_idx")
 
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         "${inputs[@]}" \
@@ -251,7 +392,7 @@ run() {
                 MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
             else
                 local f2
-                f2=$(standby_filter "$logo_idx" "$list2_exists")
+                f2=$(standby_filter "$logo_idx" "$list2_exists" "$ann_idx")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" -filter_complex "$f2" \
                     -map "[v]" -map ${audio_idx}:a:0 \
@@ -285,21 +426,41 @@ run() {
         if [ -n "$FOUND" ]; then
             if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
                 echo "🎯 $FOUND"
+                # حدّث الإعلان بالستريمر الجديد
+                update_announcement "$FOUND"
+
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
 
-                ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    -headers "User-Agent: $UA" \
-                    -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-                    -reconnect_delay_max 5 \
-                    -analyzeduration 2000000 -probesize 2000000 \
-                    -fflags +genpts+igndts \
-                    -i "$FOUND_URL" \
-                    -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                    -max_muxing_queue_size 4096 \
-                    -muxdelay 0.1 -muxpreload 0.1 \
-                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                if [ -s "$ANN_VIDEO" ]; then
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
+                        -headers "User-Agent: $UA" \
+                        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+                        -reconnect_delay_max 5 \
+                        -analyzeduration 2000000 -probesize 2000000 \
+                        -fflags +genpts+igndts \
+                        -i "$FOUND_URL" \
+                        -stream_loop -1 -i "$ANN_VIDEO" \
+                        -filter_complex "[0:v][1:v]overlay=x=0:y=H-260[v]" \
+                        -map "[v]" -map 0:a:0 \
+                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
+                        -c:a aac -b:a 128k -ar 44100 -ac 2 \
+                        -max_muxing_queue_size 4096 \
+                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                else
+                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
+                        -headers "User-Agent: $UA" \
+                        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+                        -reconnect_delay_max 5 \
+                        -analyzeduration 2000000 -probesize 2000000 \
+                        -fflags +genpts+igndts \
+                        -i "$FOUND_URL" \
+                        -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
+                        -max_muxing_queue_size 4096 \
+                        -muxdelay 0.1 -muxpreload 0.1 \
+                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+                fi
                 PROD=$!
                 sleep 6
 
@@ -317,7 +478,7 @@ run() {
                 wait $PROD 2>/dev/null
                 sleep 1
                 local f3
-                f3=$(standby_filter "$logo_idx" "$list2_exists")
+                f3=$(standby_filter "$logo_idx" "$list2_exists" "$ann_idx")
                 ffmpeg -y -hide_banner -loglevel warning -nostdin \
                     "${inputs[@]}" -filter_complex "$f3" \
                     -map "[v]" -map ${audio_idx}:a:0 \
