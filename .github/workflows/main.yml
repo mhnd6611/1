@@ -33,10 +33,10 @@ jobs:
           echo "═══ التثبيت ═══"
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig
-          
+
           echo "📦 Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
-          
+
           echo "🔤 تحميل الخط (عربي + إنجليزي)..."
           mkdir -p ~/.fonts
           FONT="$HOME/.fonts/NotoSansArabic-Bold.ttf"
@@ -65,7 +65,7 @@ jobs:
             echo "❌ فشل تحميل الخط من كل المصادر"
             exit 1
           fi
-          
+
           fc-cache -f >/dev/null 2>&1
           echo "═══ اكتمل ═══"
 
