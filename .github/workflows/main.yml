@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-pillow-v1
+          key: pip-pillow-v2
 
       - name: تثبيت الأدوات
         run: |
@@ -37,12 +37,34 @@ jobs:
           echo "📦 Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
           
-          echo "🔤 تحميل الخط العربي..."
+          echo "🔤 تحميل الخط (عربي + إنجليزي)..."
           mkdir -p ~/.fonts
-          FONT="$HOME/.fonts/NotoNaskhArabic-Regular.ttf"
-          curl -sL --max-time 30 "https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf" -o "$FONT" || \
-          curl -sL --max-time 30 "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf" -o "$FONT"
-          [ -s "$FONT" ] && echo "✅ الخط OK" || (echo "❌ فشل الخط"; exit 1)
+          FONT="$HOME/.fonts/NotoSansArabic-Bold.ttf"
+          FONT_URLS=(
+            "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
+            "https://cdn.jsdelivr.net/gh/notofonts/arabic@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
+            "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
+            "https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
+          )
+          FONT_OK=0
+          for URL in "${FONT_URLS[@]}"; do
+            echo "   محاولة: $URL"
+            curl -sL --max-time 30 "$URL" -o "$FONT" 2>/dev/null || true
+            SIZE=$(stat -c%s "$FONT" 2>/dev/null || echo 0)
+            TYPE=$(file -b "$FONT" 2>/dev/null || echo "")
+            if [ "$SIZE" -gt 50000 ] && echo "$TYPE" | grep -qiE "TrueType|OpenType|font"; then
+              echo "   ✅ صالح ($SIZE بايت، $TYPE)"
+              FONT_OK=1
+              break
+            else
+              echo "   ❌ غير صالح ($SIZE بايت، $TYPE)"
+              rm -f "$FONT"
+            fi
+          done
+          if [ "$FONT_OK" != "1" ]; then
+            echo "❌ فشل تحميل الخط من كل المصادر"
+            exit 1
+          fi
           
           fc-cache -f >/dev/null 2>&1
           echo "═══ اكتمل ═══"
@@ -72,7 +94,7 @@ jobs:
       - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
-          STREAMERS_LIST: drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,ALRND,W1pey,RAYAN,Rayan_a3,klash
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,ALRND,W1pey,RAYAN,Rayan_a3'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
