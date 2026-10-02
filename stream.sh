@@ -29,11 +29,6 @@ LOGO_W=280
 LOGO_BOTTOM=60
 LOGO_SHOW=5
 LOGO_CYCLE=7
-
-# نصوص الإعلان
-ANN_TEXT_1="سابثون بثوث ريسبكت"
-ANN_TEXT_2="البث مستمر"
-ANN_TEXT_3="بثوث شباب ريسبكت"
 # ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -59,7 +54,7 @@ echo "🔤 الخط: $FONT_FILE"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 
-# ═════════ سكربت رسم النص الثابت ═════════
+# ═════════ سكربت رسم النص ═════════
 cat > /tmp/render.py <<'PYEOF'
 import sys
 from PIL import Image, ImageDraw, ImageFont
@@ -100,105 +95,6 @@ PYEOF
 render_text() {
     python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_FILE" "$5" "$6"
 }
-
-# ═════════ سكربت فيديو الإعلان ═════════
-cat > /tmp/make_announcement.py <<'PYEOF'
-import sys, os, subprocess
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-
-streamer = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else "streamer"
-font_path = sys.argv[2]
-output = sys.argv[3]
-t1, t2, t3 = sys.argv[4], sys.argv[5], sys.argv[6]
-
-fps = 30
-duration_per = 5
-cycle = 4
-W, H = 1920, 300
-font_size = 52
-font = ImageFont.truetype(font_path, font_size)
-
-color = (0, 255, 0, 255)
-outline = (0, 20, 0, 255)
-glow_color = (0, 255, 100, 180)
-
-texts = [t1, t2, t3, f"بث {streamer}"]
-
-def render_one(text):
-    tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-    d = ImageDraw.Draw(tmp)
-    bbox = d.textbbox((0, 0), text, font=font, direction="rtl")
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-
-    pad = 25
-    W_img = tw + pad * 2
-    H_img = th + pad * 2
-
-    glow = Image.new("RGBA", (W_img, H_img), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gx = pad - bbox[0]
-    gy = pad - bbox[1]
-    gd.text((gx, gy), text, font=font, fill=glow_color, direction="rtl")
-    glow = glow.filter(ImageFilter.GaussianBlur(8))
-
-    base = Image.new("RGBA", (W_img, H_img), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(base)
-    ow = 4
-    for dx in range(-ow, ow + 1):
-        for dy in range(-ow, ow + 1):
-            if dx * dx + dy * dy <= ow * ow:
-                bd.text((gx + dx, gy + dy), text, font=font, fill=outline, direction="rtl")
-
-    bd.text((gx, gy), text, font=font, fill=color, direction="rtl")
-    final = Image.alpha_composite(glow, base)
-    return final
-
-text_imgs = [render_one(t) for t in texts]
-total_frames = fps * duration_per * cycle
-os.makedirs("/tmp/ann_frames", exist_ok=True)
-
-for i in range(total_frames):
-    t = i / fps
-    idx = int(t / duration_per) % cycle
-    lt = t % duration_per
-
-    if lt < 0.5:
-        p = lt / 0.5
-        alpha = int(255 * p); y_off = int(35 * (1 - p)); scale = 0.7 + 0.3 * p
-    elif lt < 4.5:
-        alpha = 255; y_off = 0; scale = 1.0
-    else:
-        p = (lt - 4.5) / 0.5
-        alpha = int(255 * (1 - p)); y_off = int(-30 * p); scale = 1.0 - 0.15 * p
-
-    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    txt = text_imgs[idx]
-    tw, th = txt.size
-    if scale != 1.0:
-        nw, nh = max(1, int(tw * scale)), max(1, int(th * scale))
-        txt = txt.resize((nw, nh), Image.LANCZOS)
-    else:
-        nw, nh = tw, th
-    if alpha < 255:
-        a = txt.split()[3].point(lambda x: int(x * alpha / 255))
-        txt.putalpha(a)
-    x = (W - nw) // 2
-    y = H - nh - 15 + y_off
-    canvas.paste(txt, (x, y), txt)
-    canvas.save(f"/tmp/ann_frames/f_{i:04d}.png")
-
-subprocess.run([
-    "ffmpeg", "-y", "-loglevel", "error",
-    "-framerate", str(fps),
-    "-i", "/tmp/ann_frames/f_%04d.png",
-    "-c:v", "qtrle", "-pix_fmt", "argb",
-    output
-], check=True)
-print(f"OK: {output}")
-for f in os.listdir("/tmp/ann_frames"):
-    os.remove(f"/tmp/ann_frames/{f}")
-PYEOF
 
 # ═════════ قائمة الستريمرز (3 أسطر) ═════════
 build_list_lines() {
@@ -251,18 +147,10 @@ render_text "$SUBTITLE" "white" $FS_S /tmp/txt/sub.png "black" $OUTLINE_W
 [ ! -s /tmp/txt/title.png ] && { echo "❌ فشل الرسم"; exit 1; }
 echo "✅ اكتمل الرسم"
 
-# ═════════ إنشاء إعلان ═════════
-make_announcement() {
-    local NAME="$1"
-    local OUT_FILE="$2"
-    python3 /tmp/make_announcement.py "$NAME" "$FONT_FILE" "$OUT_FILE" \
-        "$ANN_TEXT_1" "$ANN_TEXT_2" "$ANN_TEXT_3" 2>/dev/null
-}
-
 # ═════════ FIFO ═════════
 rm -f "$FIFO"; mkfifo "$FIFO"; exec 3<>"$FIFO"
 
-# ═════════ فلتر شاشة الانتظار (بدون إعلان) ═════════
+# ═════════ فلتر شاشة الانتظار ═════════
 standby_filter() {
     local logo_idx=$1
     local n2=$2
@@ -402,45 +290,21 @@ run() {
         if [ -n "$FOUND" ]; then
             if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
                 echo "🎯 $FOUND"
-
-                ANN_VIDEO="/tmp/ann_${FOUND}.mov"
-                if [ ! -s "$ANN_VIDEO" ]; then
-                    echo "🎬 إنتاج إعلان $FOUND..."
-                    make_announcement "$FOUND" "$ANN_VIDEO"
-                fi
-
                 kill -9 $PROD 2>/dev/null
                 wait $PROD 2>/dev/null
                 sleep 1
 
-                if [ -s "$ANN_VIDEO" ]; then
-                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                        -headers "User-Agent: $UA" \
-                        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-                        -reconnect_delay_max 5 \
-                        -analyzeduration 2000000 -probesize 2000000 \
-                        -fflags +genpts+igndts \
-                        -i "$FOUND_URL" \
-                        -stream_loop -1 -i "$ANN_VIDEO" \
-                        -filter_complex "[0:v][1:v]overlay=x=0:y=H-260[v]" \
-                        -map "[v]" -map 0:a:0 \
-                        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 60 \
-                        -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                        -max_muxing_queue_size 4096 \
-                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-                else
-                    ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                        -headers "User-Agent: $UA" \
-                        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-                        -reconnect_delay_max 5 \
-                        -analyzeduration 2000000 -probesize 2000000 \
-                        -fflags +genpts+igndts \
-                        -i "$FOUND_URL" \
-                        -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                        -max_muxing_queue_size 4096 \
-                        -muxdelay 0.1 -muxpreload 0.1 \
-                        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-                fi
+                ffmpeg -y -hide_banner -loglevel warning -nostdin \
+                    -headers "User-Agent: $UA" \
+                    -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+                    -reconnect_delay_max 5 \
+                    -analyzeduration 2000000 -probesize 2000000 \
+                    -fflags +genpts+igndts \
+                    -i "$FOUND_URL" \
+                    -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
+                    -max_muxing_queue_size 4096 \
+                    -muxdelay 0.1 -muxpreload 0.1 \
+                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
                 PROD=$!
                 sleep 6
 
