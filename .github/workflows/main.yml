@@ -72,7 +72,7 @@ jobs:
       - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
-          STREAMERS_LIST: drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,ALRND,W1pey,RAYAN,Rayan_a3
+          STREAMERS_LIST: drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,ALRND,W1pey,RAYAN,Rayan_a3,klash
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
