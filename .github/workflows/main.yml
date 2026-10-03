@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-pillow-v2
+          key: pip-pillow-v3
 
       - name: تثبيت الأدوات
         run: |
@@ -37,32 +37,42 @@ jobs:
           echo "📦 Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
 
-          echo "🔤 تحميل الخط (عربي + إنجليزي)..."
+          echo "🔤 تحميل الخطوط..."
           mkdir -p ~/.fonts
-          FONT="$HOME/.fonts/NotoSansArabic-Bold.ttf"
-          FONT_URLS=(
-            "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
-            "https://cdn.jsdelivr.net/gh/notofonts/arabic@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
-            "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
-            "https://github.com/notofonts/notofonts.github.io/raw/main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf"
-          )
-          FONT_OK=0
-          for URL in "${FONT_URLS[@]}"; do
-            echo "   محاولة: $URL"
-            curl -sL --max-time 30 "$URL" -o "$FONT" 2>/dev/null || true
-            SIZE=$(stat -c%s "$FONT" 2>/dev/null || echo 0)
-            TYPE=$(file -b "$FONT" 2>/dev/null || echo "")
-            if [ "$SIZE" -gt 50000 ] && echo "$TYPE" | grep -qiE "TrueType|OpenType|font"; then
-              echo "   ✅ صالح ($SIZE بايت، $TYPE)"
-              FONT_OK=1
+
+          CAIRO_OK=0
+          for URL in \
+            "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" \
+            "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"; do
+            curl -sL --max-time 30 "$URL" -o ~/.fonts/Cairo-var.ttf 2>/dev/null || true
+            S=$(stat -c%s ~/.fonts/Cairo-var.ttf 2>/dev/null || echo 0)
+            if [ "$S" -gt 50000 ]; then
+              echo "✅ Cairo ($S بايت)"
+              CAIRO_OK=1
               break
-            else
-              echo "   ❌ غير صالح ($SIZE بايت، $TYPE)"
-              rm -f "$FONT"
             fi
+            rm -f ~/.fonts/Cairo-var.ttf
           done
-          if [ "$FONT_OK" != "1" ]; then
-            echo "❌ فشل تحميل الخط من كل المصادر"
+          if [ "$CAIRO_OK" != "1" ]; then
+            echo "⚠️ فشل Cairo — استخدام Noto Naskh Arabic"
+            curl -sL --max-time 30 "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf" -o ~/.fonts/Cairo-var.ttf
+          fi
+
+          ORB_OK=0
+          for URL in \
+            "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/orbitron/Orbitron%5Bwght%5D.ttf" \
+            "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf"; do
+            curl -sL --max-time 30 "$URL" -o ~/.fonts/Orbitron-var.ttf 2>/dev/null || true
+            S=$(stat -c%s ~/.fonts/Orbitron-var.ttf 2>/dev/null || echo 0)
+            if [ "$S" -gt 20000 ]; then
+              echo "✅ Orbitron ($S بايت)"
+              ORB_OK=1
+              break
+            fi
+            rm -f ~/.fonts/Orbitron-var.ttf
+          done
+          if [ "$ORB_OK" != "1" ]; then
+            echo "❌ فشل تحميل Orbitron"
             exit 1
           fi
 
@@ -72,9 +82,9 @@ jobs:
       - name: التحقق
         run: |
           echo "ffmpeg: $(which ffmpeg || echo مفقود)"
-          echo "python3: $(which python3)"
           echo "PIL: $(python3 -c 'import PIL; print(PIL.__version__)' 2>&1)"
-          echo "الخط: $(ls -la ~/.fonts/*.ttf 2>/dev/null | head -1)"
+          echo "Cairo: $(ls -la ~/.fonts/Cairo-var.ttf 2>/dev/null | awk '{print $5}') بايت"
+          echo "Orbitron: $(ls -la ~/.fonts/Orbitron-var.ttf 2>/dev/null | awk '{print $5}') بايت"
           echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1)"
 
       - name: PATH
@@ -94,7 +104,7 @@ jobs:
       - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12416925_event6f6e2607a46347b59efab0c722ed3e53' }}
-          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,W1pey,RAYAN,klash,ALRND,Rayan_a3'
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,W1pey,RAYAN,moustache,klash,ALRND,Rayan_a3'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
