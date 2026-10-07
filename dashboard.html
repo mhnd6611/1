@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broadcast Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0814;
+    --card: #14060a;
+    --border: #2a1a3a;
+    --accent: #b266ff;
+    --accent2: #ff7700;
+    --text: #e0e0e0;
+    --muted: #888;
+    --ok: #00ff88;
+    --fail: #ff4466;
+    --warn: #ffaa00;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Tahoma', 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  
+  header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 20px;
+  }
+  header h1 {
+    color: var(--accent);
+    font-size: 22px;
+    margin-left: auto;
+  }
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #555;
+    transition: all 0.3s;
+  }
+  .dot.on { background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 2s infinite; }
+  .dot.off { background: var(--fail); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  
+  input, select, button, textarea {
+    background: #1a0a30;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  button {
+    cursor: pointer;
+    font-weight: 700;
+    transition: all 0.2s;
+  }
+  button:hover { transform: translateY(-1px); filter: brightness(1.15); }
+  button:active { transform: translateY(0); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  button.danger { background: var(--fail); color: #fff; border-color: var(--fail); }
+  button.ok { background: var(--ok); color: #000; border-color: var(--ok); }
+  button.ghost { background: transparent; border-color: var(--border); }
+  button.sm { padding: 5px 10px; font-size: 12px; }
+  
+  .token-box {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 10px;
+  }
+  .token-box input { flex: 1; font-family: monospace; font-size: 12px; }
+  
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--accent);
+    display: block;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .stat .lbl { color: var(--muted); font-size: 12px; }
+  .stat.ok .num { color: var(--ok); }
+  .stat.fail .num { color: var(--fail); }
+  .stat.warn .num { color: var(--warn); }
+  
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    color: var(--accent);
+    font-size: 16px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .panel h2 .badge {
+    background: var(--accent);
+    color: #000;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 900;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--accent);
+    font-size: 12px;
+    text-transform: uppercase;
+    font-weight: 700;
+    background: #1a0a30;
+  }
+  tr:hover { background: rgba(178,102,255,0.05); }
+  tr.active-run { background: rgba(0,255,136,0.05); border-right: 3px solid var(--ok); }
+  
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge.success { background: rgba(0,255,136,0.2); color: var(--ok); }
+  .badge.failure { background: rgba(255,68,102,0.2); color: var(--fail); }
+  .badge.in_progress { background: rgba(255,170,0,0.2); color: var(--warn); }
+  .badge.queued { background: rgba(178,102,255,0.2); color: var(--accent); }
+  .badge.cancelled { background: rgba(136,136,136,0.2); color: var(--muted); }
+  
+  .form-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-bottom: 12px;
+  }
+  .form-row > * { flex: 1; min-width: 150px; }
+  .form-row label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  
+  .empty {
+    text-align: center;
+    padding: 30px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--card);
+    border: 2px solid var(--accent);
+    padding: 14px 24px;
+    border-radius: 10px;
+    color: var(--text);
+    font-weight: 700;
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .toast.ok { border-color: var(--ok); }
+  .toast.err { border-color: var(--fail); }
+  
+  .controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+  .auto-refresh-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+  }
+  
+  .drawer {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .drawer.open { display: flex; }
+  .drawer-content {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    max-width: 1000px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .drawer-content h3 {
+    color: var(--accent);
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="status-indicator">
+      <div class="dot" id="conn-dot"></div>
+      <span id="conn-text">غير متصل</span>
+    </div>
+    <h1>🎬 Broadcast Dashboard</h1>
+  </header>
+
+  <div class="panel" id="token-panel">
+    <h2>🔑 إعداد GitHub Token</h2>
+    <div class="token-box">
+      <input type="password" id="token" placeholder="ghp_...">
+      <button class="primary" onclick="saveToken()">حفظ</button>
+      <button class="ghost" onclick="clearToken()">مسح</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">
+      التوكن يُحفظ في متصفحك فقط (localStorage) — لا يُرسل لأي جهة غير GitHub API.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>📁 المستودع</h2>
+    <div class="form-row">
+      <div>
+        <label>Owner / Repo</label>
+        <input id="repo" placeholder="username/repo-name" value="">
+      </div>
+      <div>
+        <label>Workflow file</label>
+        <input id="workflow" value="main.yml">
+      </div>
+      <button class="primary" onclick="saveRepo()">حفظ</button>
+      <button class="ok" onclick="refresh(true)">🔄 تحديث</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat ok">
+      <span class="num" id="s-active">0</span>
+      <span class="lbl">رنات نشطة</span>
+    </div>
+    <div class="stat">
+      <span class="num" id="s-today">0</span>
+      <span class="lbl">اليوم</span>
+    </div>
+    <div class="stat ok">
+      <span class="num" id="s-success">0%</span>
+      <span class="lbl">نجاح</span>
+    </div>
+    <div class="stat fail">
+      <span class="num" id="s-fail">0</span>
+      <span class="lbl">فشل</span>
+    </div>
+    <div class="stat warn">
+      <span class="num" id="s-live">-</span>
+      <span class="lbl">وضع البث</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>🚀 تشغيل رن جديد <span class="badge">يدوي</span></h2>
+    <div class="form-row">
+      <div style="flex:3">
+        <label>Restream Key</label>
+        <input id="new-key" placeholder="re_...">
+      </div>
+      <div style="flex:4">
+        <label>قائمة الستريمرز (فاصلة)</label>
+        <input id="new-streamers" placeholder="drb7h,S5B,...">
+      </div>
+      <button class="primary" onclick="triggerRun()" style="flex:1">▶️ ابدأ</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">
+      يمكنك ترك الحقول فارغة لاستخدام القيم الافتراضية.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>📊 الرنات
+      <span class="badge" id="runs-count">0</span>
+      <div class="controls" style="margin-right:auto">
+        <div class="auto-refresh-badge">
+          <input type="checkbox" id="auto-refresh" checked onchange="toggleAuto()">
+          <label for="auto-refresh">تحديث تلقائي كل</label>
+          <select id="refresh-interval" onchange="toggleAuto()">
+            <option value="5">5 ثوان</option>
+            <option value="10" selected>10 ثوان</option>
+            <option value="30">30 ثانية</option>
+            <option value="60">دقيقة</option>
+          </select>
+        </div>
+      </div>
+    </h2>
+    <div id="runs-list">
+      <div class="empty">لا توجد بيانات — أدخل التوكن واضغط تحديث</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="drawer" id="drawer" onclick="if(event.target===this) closeDrawer()">
+  <div class="drawer-content">
+    <h3>
+      <span id="drawer-title">تفاصيل الرن</span>
+      <button class="ghost sm" onclick="closeDrawer()">✕</button>
+    </h3>
+    <div id="drawer-body"></div>
+  </div>
+</div>
+
+<script>
+const S = {
+  token: localStorage.getItem('gh_token') || '',
+  repo: localStorage.getItem('gh_repo') || '',
+  workflow: localStorage.getItem('gh_workflow') || 'main.yml',
+  runs: [],
+  timer: null,
+  loading: false,
+};
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (S.token) document.getElementById('token').value = '•'.repeat(20);
+  if (S.repo) document.getElementById('repo').value = S.repo;
+  if (S.workflow) document.getElementById('workflow').value = S.workflow;
+  document.getElementById('new-key').value = localStorage.getItem('gh_defkey') || '';
+  document.getElementById('new-streamers').value = localStorage.getItem('gh_defstreamers') || '';
+  if (S.token && S.repo) { refresh(); toggleAuto(); }
+});
+
+function saveToken() {
+  const v = document.getElementById('token').value.trim();
+  if (!v || v.startsWith('•')) { toast('أدخل التوكن', 'err'); return; }
+  S.token = v;
+  localStorage.setItem('gh_token', v);
+  document.getElementById('token').value = '•'.repeat(20);
+  toast('✅ تم حفظ التوكن', 'ok');
+  refresh();
+}
+
+function clearToken() {
+  S.token = '';
+  localStorage.removeItem('gh_token');
+  document.getElementById('token').value = '';
+  toast('تم مسح التوكن', 'ok');
+}
+
+function saveRepo() {
+  let r = document.getElementById('repo').value.trim();
+  if (!r.includes('/')) { toast('الصيغة: owner/repo', 'err'); return; }
+  S.repo = r;
+  S.workflow = document.getElementById('workflow').value.trim() || 'main.yml';
+  localStorage.setItem('gh_repo', S.repo);
+  localStorage.setItem('gh_workflow', S.workflow);
+  toast('✅ تم حفظ المستودع', 'ok');
+  refresh();
+}
+
+async function gh(path, opts = {}) {
+  if (!S.token) throw new Error('لا يوجد توكن');
+  const res = await fetch('https://api.github.com' + path, {
+    ...opts,
+    headers: {
+      'Authorization': `Bearer ${S.token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(opts.headers || {}),
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (res.status === 204) return null;
+  return res.headers.get('content-type')?.includes('json') ? res.json() : res.text();
+}
+
+async function refresh(manual) {
+  if (!S.token || !S.repo) { setConn(false, 'لا يوجد توكن'); return; }
+  if (S.loading && !manual) return;
+  S.loading = true;
+  setConn(false, 'جاري التحميل...');
+  try {
+    const data = await gh(`/repos/${S.repo}/actions/runs?per_page=30`);
+    S.runs = data.workflow_runs || [];
+    renderRuns();
+    computeStats();
+    setConn(true, 'متصل');
+  } catch (e) {
+    setConn(false, e.message);
+    console.error(e);
+  } finally { S.loading = false; }
+}
+
+function setConn(ok, msg) {
+  const d = document.getElementById('conn-dot');
+  const t = document.getElementById('conn-text');
+  d.className = 'dot ' + (ok ? 'on' : 'off');
+  t.textContent = msg;
+}
+
+function computeStats() {
+  const runs = S.runs;
+  const active = runs.filter(r => r.status === 'in_progress' || r.status === 'queued').length;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayRuns = runs.filter(r => (r.created_at || '').startsWith(today));
+  const success = todayRuns.filter(r => r.conclusion === 'success').length;
+  const fail = todayRuns.filter(r => r.conclusion === 'failure').length;
+  const total = success + fail;
+  const rate = total ? Math.round(success / total * 100) : 0;
+  document.getElementById('s-active').textContent = active;
+  document.getElementById('s-today').textContent = todayRuns.length;
+  document.getElementById('s-success').textContent = rate + '%';
+  document.getElementById('s-fail').textContent = fail;
+  document.getElementById('s-live').textContent = runs.find(r => r.status === 'in_progress') ? 'نشط' : 'متوقف';
+}
+
+function fmtDuration(s) {
+  if (!s) return '-';
+  if (s < 60) return s + 'ث';
+  if (s < 3600) return Math.floor(s/60) + 'د ' + (s%60) + 'ث';
+  return Math.floor(s/3600) + 'س ' + Math.floor((s%3600)/60) + 'د';
+}
+
+function fmtTime(iso) {
+  if (!iso) return '-';
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60) return diff + 'ث مضت';
+  if (diff < 3600) return Math.floor(diff/60) + 'د مضت';
+  if (diff < 86400) return Math.floor(diff/3600) + 'س مضت';
+  return new Date(iso).toLocaleDateString('ar-IQ');
+}
+
+function renderRuns() {
+  const box = document.getElementById('runs-list');
+  document.getElementById('runs-count').textContent = S.runs.length;
+  if (!S.runs.length) { box.innerHTML = '<div class="empty">لا توجد رنات</div>'; return; }
+  box.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>#</th><th>الحالة</th><th>الحدث</th><th>المدة</th><th>البدء</th><th>إجراءات</th>
+      </tr></thead>
+      <tbody>
+        ${S.runs.map(r => {
+          const active = r.status === 'in_progress' || r.status === 'queued';
+          const dur = r.updated_at && r.created_at ? Math.floor((new Date(r.updated_at) - new Date(r.created_at))/1000) : 0;
+          const b = r.conclusion || r.status;
+          return `<tr class="${active ? 'active-run' : ''}">
+            <td><strong>#${r.run_number}</strong></td>
+            <td><span class="badge ${b}">${badgeLabel(b)}</span></td>
+            <td style="font-size:11px;color:var(--muted)">${r.event}</td>
+            <td>${fmtDuration(dur)}</td>
+            <td style="font-size:11px">${fmtTime(r.created_at)}</td>
+            <td>
+              ${active ? `<button class="danger sm" onclick="cancelRun(${r.id}, ${r.run_number})">🛑 إلغاء</button>` : ''}
+              ${r.conclusion === 'failure' || r.conclusion === 'cancelled' ? `<button class="ok sm" onclick="rerun(${r.id}, ${r.run_number})">🔄</button>` : ''}
+              <button class="ghost sm" onclick="viewRun(${r.id}, ${r.run_number})">📋</button>
+              <a href="${r.html_url}" target="_blank" style="text-decoration:none"><button class="ghost sm">↗</button></a>
+            </td></tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function badgeLabel(b) {
+  return { success:'نجح', failure:'فشل', cancelled:'أُلغي', in_progress:'يعمل', queued:'في الطابور', skipped:'تخطّى', timed_out:'انتهى الوقت', action_required:'مطلوب إجراء', neutral:'محايد' }[b] || b;
+}
+
+async function cancelRun(id, num) {
+  if (!confirm(`إلغاء الرن #${num}؟`)) return;
+  try {
+    await gh(`/repos/${S.repo}/actions/runs/${id}/cancel`, { method: 'POST' });
+    toast(`✅ تم إلغاء #${num}`, 'ok');
+    setTimeout(() => refresh(true), 1500);
+  } catch (e) { toast('❌ ' + e.message, 'err'); }
+}
+
+async function rerun(id, num) {
+  if (!confirm(`إعادة الرن #${num}؟`)) return;
+  try {
+    await gh(`/repos/${S.repo}/actions/runs/${id}/rerun`, { method: 'POST' });
+    toast(`✅ جاري إعادة #${num}`, 'ok');
+    setTimeout(() => refresh(true), 2000);
+  } catch (e) { toast('❌ ' + e.message, 'err'); }
+}
+
+async function triggerRun() {
+  const key = document.getElementById('new-key').value.trim();
+  const streamers = document.getElementById('new-streamers').value.trim();
+  if (key) localStorage.setItem('gh_defkey', key);
+  if (streamers) localStorage.setItem('gh_defstreamers', streamers);
+  const inputs = {};
+  if (key) inputs.restream_key = key;
+  if (streamers) inputs.streamers_list = streamers;
+  try {
+    await gh(`/repos/${S.repo}/actions/workflows/${S.workflow}/dispatches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: 'main', inputs }),
+    });
+    toast('✅ تم إطلاق رن جديد', 'ok');
+    setTimeout(() => refresh(true), 2000);
+  } catch (e) { toast('❌ ' + e.message, 'err'); }
+}
+
+async function viewRun(id, num) {
+  document.getElementById('drawer-title').textContent = `الرن #${num}`;
+  document.getElementById('drawer-body').innerHTML = '<div class="empty">جاري التحميل...</div>';
+  document.getElementById('drawer').classList.add('open');
+  try {
+    const jobs = await gh(`/repos/${S.repo}/actions/runs/${id}/jobs`);
+    document.getElementById('drawer-body').innerHTML = (jobs.jobs || []).map(j => `
+      <div style="margin-bottom:15px;padding:12px;background:#1a0a30;border-radius:8px">
+        <strong style="color:var(--accent)">${j.name}</strong>
+        <span class="badge ${j.conclusion || j.status}" style="margin-right:8px">${badgeLabel(j.conclusion || j.status)}</span>
+        <div style="margin-top:10px;font-size:12px">
+          ${(j.steps||[]).map(s => `<div style="padding:4px 0"><span style="color:${s.conclusion==='success'?'var(--ok)':s.conclusion==='failure'?'var(--fail)':'var(--muted)'}">${s.conclusion==='success'?'✓':s.conclusion==='failure'?'✗':'○'}</span> ${s.name}</div>`).join('')}
+        </div>
+      </div>`).join('') || '<div class="empty">لا توجد وظائف</div>';
+  } catch (e) {
+    document.getElementById('drawer-body').innerHTML = `<div class="empty" style="color:var(--fail)">${e.message}</div>`;
+  }
+}
+
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); }
+
+function toggleAuto() {
+  if (S.timer) { clearInterval(S.timer); S.timer = null; }
+  if (document.getElementById('auto-refresh').checked && S.token && S.repo) {
+    const sec = parseInt(document.getElementById('refresh-interval').value) || 10;
+    S.timer = setInterval(() => refresh(), sec * 1000);
+  }
+}
+
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(() => t.className = 'toast ' + (type || ''), 3000);
+}
+</script>
+</body>
+  </html>
