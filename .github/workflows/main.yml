@@ -5,7 +5,7 @@ on:
     inputs:
       restream_key:
         required: false
-        default: 're_12394050_event6b6633e65c7f400cac574dea272893ee'
+        default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7'
   schedule:
     - cron: '0 */6 * * *'
 
