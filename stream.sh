@@ -31,6 +31,10 @@ LOGO_CYCLE=7
 
 FPS=60
 GOP=120
+
+BG_TOP_R=13; BG_TOP_G=5;  BG_TOP_B=24
+BG_BOT_R=26; BG_BOT_G=10; BG_BOT_B=48
+GLOW_R=150;  GLOW_G=80;   GLOW_B=220
 # ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -57,27 +61,65 @@ echo "🎬 FPS: $FPS | GOP: $GOP"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
-cat > /tmp/make_bg.py <<'PYEOF'
-from PIL import Image, ImageDraw, ImageFilter
-import sys
+# ═════════ سكربت بايثون: كل شيء في صورة واحدة ═════════
+cat > /tmp/make_standby.py <<PYEOF
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import sys, os
+
 W, H = 1920, 1080
-out = sys.argv[1]
-BG_TOP = (13, 5, 24)
-BG_BOT = (26, 10, 48)
-img = Image.new("RGB", (W, H))
-d = ImageDraw.Draw(img)
+FONT_AR = "$FONT_AR"
+FONT_EN = "$FONT_EN"
+TITLE = "$TITLE"
+SUBTITLE = "$SUBTITLE"
+LABEL = "$LABEL"
+COLOR_T = "$COLOR_T"
+COLOR_S = "$COLOR_S"
+COLOR_L = "$COLOR_L"
+COLOR_NAME = "$COLOR_NAME"
+FS_T = $FS_T
+FS_S = $FS_S
+FS_L = $FS_L
+FS_NAME = $FS_NAME
+Y_LIST = $Y_LIST
+Y_TITLE = $Y_TITLE
+Y_SUB = $Y_SUB
+BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
+BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
+GLOW = ($GLOW_R, $GLOW_G, $GLOW_B, 65)
+STREAMERS = "${STREAMERS_LIST}"
+
+def load_font(path, size, weight=700):
+    font = ImageFont.truetype(path, size)
+    try:
+        axes = font.get_variation_axes()
+        if len(axes) == 1:
+            font.set_variation_by_axes([weight])
+        elif len(axes) == 2:
+            font.set_variation_by_axes([0, weight])
+        elif len(axes) == 3:
+            font.set_variation_by_axes([0, weight, 0])
+    except Exception:
+        pass
+    return font
+
+# ─── 1) توليد الخلفية ───
+bg = Image.new("RGB", (W, H))
+d = ImageDraw.Draw(bg)
 for y in range(H):
     t = y / H
     r = int(BG_TOP[0] + (BG_BOT[0] - BG_TOP[0]) * t)
     g = int(BG_TOP[1] + (BG_BOT[1] - BG_TOP[1]) * t)
     b = int(BG_TOP[2] + (BG_BOT[2] - BG_TOP[2]) * t)
     d.line([(0, y), (W, y)], fill=(r, g, b))
-img = img.convert("RGBA")
+
+bg = bg.convert("RGBA")
 glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 gd = ImageDraw.Draw(glow)
-gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=(150, 80, 220, 65))
+gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=GLOW)
 glow = glow.filter(ImageFilter.GaussianBlur(250))
-img = Image.alpha_composite(img, glow)
+bg = Image.alpha_composite(bg, glow)
+
+# نمط الماس
 pattern = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 pd = ImageDraw.Draw(pattern)
 size = 90
@@ -98,168 +140,113 @@ for yy in range(start_y, H):
     a = min(255, int((yy - start_y) / 0.7))
     md.line([(0, yy), (W, yy)], fill=a)
 pattern.putalpha(mask)
-img = Image.alpha_composite(img, pattern)
-img.convert("RGB").save(out, "PNG")
-print(f"OK: {out}")
-PYEOF
+bg = Image.alpha_composite(bg, pattern)
 
-FONT_LOADER='
-def load_font(path, size, weight=700):
-    from PIL import ImageFont
-    font = ImageFont.truetype(path, size)
-    try:
-        axes = font.get_variation_axes()
-        if len(axes) == 1:
-            font.set_variation_by_axes([weight])
-        elif len(axes) == 2:
-            font.set_variation_by_axes([0, weight])
-        elif len(axes) == 3:
-            font.set_variation_by_axes([0, weight, 0])
-    except Exception:
-        pass
-    return font
-'
+# ─── 2) رسم النصوص كلها على طبقة واحدة ───
+font_ar = load_font(FONT_AR, FS_T, 700)
+font_ar_sub = load_font(FONT_AR, FS_S, 700)
+font_ar_label = load_font(FONT_AR, FS_L, 700)
+font_en = load_font(FONT_EN, FS_NAME, 700)
 
-cat > /tmp/render.py <<PYEOF
-import sys
-from PIL import Image, ImageDraw
-$FONT_LOADER
+texts = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+td = ImageDraw.Draw(texts)
 
-text = sys.argv[1]
-color = sys.argv[2]
-pointsize = int(sys.argv[3])
-output = sys.argv[4]
-font_path = sys.argv[5]
-outline_color = sys.argv[6] if len(sys.argv) > 6 else None
-outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
-direction = sys.argv[8] if len(sys.argv) > 8 else "rtl"
-
-font = load_font(font_path, pointsize, 700)
-tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-d = ImageDraw.Draw(tmp)
-bbox = d.textbbox((0, 0), text, font=font, direction=direction)
-tw = bbox[2] - bbox[0]
-th = bbox[3] - bbox[1]
-pad = max(outline_w, 8) + 15
-W = tw + pad * 2
-H = th + pad * 2
-img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-d = ImageDraw.Draw(img)
-x = pad - bbox[0]
-y = pad - bbox[1]
-if outline_color and outline_w > 0:
+def draw_with_outline(draw, xy, text, font, fill, outline, outline_w, direction, anchor="la"):
+    x, y = xy
     for dx in range(-outline_w, outline_w + 1):
         for dy in range(-outline_w, outline_w + 1):
             if dx*dx + dy*dy <= outline_w*outline_w:
-                d.text((x+dx, y+dy), text, font=font, fill=outline_color, direction=direction)
-d.text((x, y), text, font=font, fill=color, direction=direction)
-img.save(output, "PNG")
+                draw.text((x+dx, y+dy), text, font=font, fill=outline, direction=direction, anchor=anchor)
+    draw.text((x, y), text, font=font, fill=fill, direction=direction, anchor=anchor)
+
+# قائمة الستريمرز — 3 أسطر
+items = [s.strip() for s in STREAMERS.split(',') if s.strip()]
+total = len(items)
+per_line = max(4, (total + 2) // 3)
+lines = []
+for i in range(0, total, per_line):
+    lines.append(items[i:i+per_line])
+
+# السطر الأول: label + السطر الأول من القائمة
+y_pos = Y_LIST
+if lines:
+    line1 = " ◆ ".join(lines[0]).upper()
+    # label عربي + قائمة إنجليزية
+    label_w = td.textlength(LABEL, font=font_ar_label)
+    full_line1 = LABEL + " " + line1
+    # نرسم كسطر واحد على اليمين
+    x_start = W - 40
+    # ارسم label عربي أولاً (يمين)
+    draw_with_outline(td, (x_start, y_pos), LABEL, font_ar_label, COLOR_L, "black", 2, "rtl", "ra")
+    # ثم القائمة على يسارها
+    td.text((x_start - label_w - 15, y_pos + 2), line1, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
+    # حد أسود للقائمة
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            if dx == 0 and dy == 0: continue
+            td.text((x_start - label_w - 15 + dx, y_pos + 2 + dy), line1, font=font_en, fill="black", direction="ltr", anchor="ra")
+    td.text((x_start - label_w - 15, y_pos + 2), line1, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
+
+# السطر 2 و 3 من القائمة
+for idx, line_items in enumerate(lines[1:], start=1):
+    line = " ◆ ".join(line_items).upper()
+    y_line = y_pos + idx * (FS_NAME + 20)
+    td.text((W - 40, y_line), line, font=font_en, fill="black", direction="ltr", anchor="ra")
+    td.text((W - 40, y_line), line, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
+
+# العنوان الرئيسي (وسط)
+title_bbox = td.textbbox((0, 0), TITLE, font=font_ar, direction="rtl")
+tw = title_bbox[2] - title_bbox[0]
+title_x = (W + tw) // 2
+draw_with_outline(td, (title_x, Y_TITLE), TITLE, font_ar, COLOR_T, "black", 4, "rtl", "ra")
+
+# السطر الثاني
+sub_bbox = td.textbbox((0, 0), SUBTITLE, font=font_ar_sub, direction="rtl")
+sw = sub_bbox[2] - sub_bbox[0]
+sub_x = (W + sw) // 2
+draw_with_outline(td, (sub_x, Y_SUB), SUBTITLE, font_ar_sub, COLOR_S, "black", 3, "rtl", "ra")
+
+# ─── 3) دمج ───
+final = Image.alpha_composite(bg, texts)
+final.convert("RGB").save("/tmp/standby.png", "PNG")
+print("OK: /tmp/standby.png")
 PYEOF
 
-render_ar() { python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_AR" "$5" "$6" "rtl"; }
-render_en() { python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_EN" "$5" "$6" "ltr"; }
+# ═════════ توليد الصورة ═════════
+echo "🎨 توليد صورة الانتظار..."
+python3 /tmp/make_standby.py
+[ ! -s /tmp/standby.png ] && { echo "❌ فشل توليد الصورة"; exit 1; }
 
-build_list_lines() {
-    local total=${#STREAMERS[@]}
-    local per_line=$(( (total + 2) / 3 ))
-    [ $per_line -lt 4 ] && per_line=4
-    local line1="" line2="" line3="" i=0
-    for S in "${STREAMERS[@]}"; do
-        S=$(echo "$S" | xargs)
-        [ -z "$S" ] && continue
-        if [ $i -lt $per_line ]; then
-            [ -z "$line1" ] && line1="$S" || line1="$line1 ◆ $S"
-        elif [ $i -lt $((per_line * 2)) ]; then
-            [ -z "$line2" ] && line2="$S" || line2="$line2 ◆ $S"
-        else
-            [ -z "$line3" ] && line3="$S" || line3="$line3 ◆ $S"
-        fi
-        i=$((i+1))
-    done
-    echo "$line1"
-    echo "$line2"
-    echo "$line3"
-}
-
-mapfile -t LIST_LINES < <(build_list_lines)
-LIST_LINE1="${LIST_LINES[0]}"
-LIST_LINE2="${LIST_LINES[1]}"
-LIST_LINE3="${LIST_LINES[2]}"
-
-LOGO=""
+# ═════════ الشعار — تنظيف مسبق ═════════
 echo "⬇️ الشعار..."
-if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_src.png 2>/dev/null; then
-    if [ -s /tmp/logo_src.png ] && file /tmp/logo_src.png 2>/dev/null | grep -qiE "PNG|JPEG|image"; then
-        LOGO="/tmp/logo_src.png"
-        echo "✅ الشعار"
+LOGO=""
+if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_raw.png 2>/dev/null; then
+    if [ -s /tmp/logo_raw.png ]; then
+        # إعادة ترميز الشعار بـ Pillow (يصلح أي تلف)
+        python3 - <<PYEOF
+from PIL import Image
+try:
+    img = Image.open("/tmp/logo_raw.png").convert("RGBA")
+    img.thumbnail(($LOGO_W, $LOGO_W * 4), Image.LANCZOS)
+    img.save("/tmp/logo.png", "PNG")
+    print("OK")
+except Exception as e:
+    print(f"ERR: {e}")
+    exit(1)
+PYEOF
+        [ -s /tmp/logo.png ] && { LOGO="/tmp/logo.png"; echo "✅ الشعار"; }
     fi
 fi
 [ -z "$LOGO" ] && echo "⚠️ بلا شعار"
 
-echo "🎨 توليد الخلفية..."
-python3 /tmp/make_bg.py /tmp/bg.png
-BG_IMG="/tmp/bg.png"
-[ ! -s "$BG_IMG" ] && { echo "❌ فشل الخلفية"; exit 1; }
-
-echo "🖌️ رسم النصوص..."
-mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
-
-render_ar "$LABEL" "$COLOR_L" $FS_L /tmp/txt/label.png "black" 2
-[ -n "$LIST_LINE1" ] && render_en "$(echo "$LIST_LINE1" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l1.png "black" 1
-[ -n "$LIST_LINE2" ] && render_en "$(echo "$LIST_LINE2" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l2.png "black" 1
-[ -n "$LIST_LINE3" ] && render_en "$(echo "$LIST_LINE3" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l3.png "black" 1
-
-render_ar "$TITLE" "$COLOR_T" $FS_T /tmp/txt/title.png "black" 4
-render_ar "$SUBTITLE" "$COLOR_S" $FS_S /tmp/txt/sub.png "black" 3
-
-[ ! -s /tmp/txt/title.png ] && { echo "❌ فشل الرسم"; exit 1; }
-echo "✅ اكتمل الرسم"
-
-# ═════════ FIFO يُعاد إنشاؤه لكل producer ═════════
+# ═════════ FIFO + إعادة إنشاء ═════════
 make_fifo() {
     rm -f "$FIFO"
     mkfifo "$FIFO"
     exec 3<>"$FIFO"
 }
 
-standby_filter() {
-    local logo_idx=$1
-    local n2=$2
-    local n3=$3
-    local f=""
-    local next="0:v"
-    local idx=1
-
-    f="[0:v][${idx}:v]overlay=x=W-w-40:y=$Y_LIST[a]"
-    next="a"; idx=$((idx+1))
-
-    f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50))[b]"
-    next="b"; idx=$((idx+1))
-
-    if [ "$n2" = "1" ]; then
-        f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50 + FS_NAME + 20))[c]"
-        next="c"; idx=$((idx+1))
-    fi
-    if [ "$n3" = "1" ]; then
-        f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50 + (FS_NAME + 20) * 2))[d]"
-        next="d"; idx=$((idx+1))
-    fi
-
-    f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$Y_TITLE[e]"
-    next="e"; idx=$((idx+1))
-
-    f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$Y_SUB[f]"
-    next="f"; idx=$((idx+1))
-
-    if [ "$logo_idx" -ge 0 ]; then
-        f="$f;[${logo_idx}:v]scale=${LOGO_W}:-1[logosc];[${next}][logosc]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]"
-    else
-        f="$f;[${next}]null[v]"
-    fi
-    echo "$f"
-}
-
-# ═════════ تشغيل المخرج — يُستدعى مرة واحدة بعد بدء المنتج ═════════
+# ═════════ المخرج ═════════
 start_output() {
     echo "🔗 فتح اتصال مع Restream..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -276,50 +263,36 @@ start_output() {
         echo "❌ فشل المخرج:"; cat /tmp/out.log
         return 1
     fi
-    echo "✅ المخرج شغال (PID: $OUT)"
+    echo "✅ المخرج (PID: $OUT)"
     return 0
 }
 
-# ═════════ منتج الانتظار ═════════
+# ═════════ منتج الانتظار (صورة واحدة فقط + شعار) ═════════
 start_producer_standby() {
-    echo "⏳ تشغيل شاشة الانتظار..."
-    local inputs=()
-    inputs+=(-loop 1 -framerate $FPS -i /tmp/bg.png)
-    inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/label.png)
-    inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/l1.png)
-    local next_idx=3
-    local n2=0; local n3=0
-    if [ -s /tmp/txt/l2.png ]; then
-        inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/l2.png)
-        n2=1; next_idx=$((next_idx + 1))
-    fi
-    if [ -s /tmp/txt/l3.png ]; then
-        inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/l3.png)
-        n3=1; next_idx=$((next_idx + 1))
-    fi
-    inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/title.png)
-    next_idx=$((next_idx + 1))
-    inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/sub.png)
-    next_idx=$((next_idx + 1))
-    local logo_idx=-1
+    echo "⏳ شاشة الانتظار..."
     if [ -n "$LOGO" ]; then
-        inputs+=(-loop 1 -framerate $FPS -i "$LOGO")
-        logo_idx=$next_idx; next_idx=$((next_idx + 1))
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
+            -loop 1 -framerate $FPS -i /tmp/standby.png \
+            -loop 1 -framerate $FPS -i "$LOGO" \
+            -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='lt(mod(t\,$LOGO_CYCLE)\,$LOGO_SHOW)'[v]" \
+            -map "[v]" -map 2:a:0 \
+            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+            -r $FPS -g $GOP \
+            -c:a aac -b:a 128k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 \
+            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+    else
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
+            -loop 1 -framerate $FPS -i /tmp/standby.png \
+            -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -map 0:v:0 -map 1:a:0 \
+            -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
+            -r $FPS -g $GOP \
+            -c:a aac -b:a 128k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 \
+            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     fi
-    inputs+=(-f lavfi -i "anullsrc=r=44100:cl=stereo")
-    local audio_idx=$next_idx
-
-    local filter
-    filter=$(standby_filter "$logo_idx" "$n2" "$n3")
-
-    ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        "${inputs[@]}" -filter_complex "$filter" \
-        -map "[v]" -map ${audio_idx}:a:0 \
-        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
-        -r $FPS -g $GOP \
-        -c:a aac -b:a 128k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 \
-        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     PROD=$!
     sleep 4
     if ! kill -0 $PROD 2>/dev/null; then
@@ -334,7 +307,7 @@ start_producer_standby() {
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
-    echo "🔴 تشغيل منتج مباشر: $NAME"
+    echo "🔴 منتج مباشر: $NAME"
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -headers "User-Agent: $UA" \
         -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
@@ -349,14 +322,13 @@ start_producer_live() {
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "⚠️ فشل المنتج $NAME"; tail -n 5 /tmp/prod.log
+        echo "⚠️ فشل $NAME"; tail -n 5 /tmp/prod.log
         return 1
     fi
     echo "✅ منتج مباشر (PID: $PROD)"
     return 0
 }
 
-# ═════════ إيقاف كل شيء بشكل نظيف ═════════
 kill_all() {
     [ -n "$PROD" ] && kill -9 $PROD 2>/dev/null
     [ -n "$OUT" ] && kill -9 $OUT 2>/dev/null
@@ -366,10 +338,10 @@ kill_all() {
     OUT=""
 }
 
-# ═════════ الحلقة الرئيسية ═════════
+# ═════════ الحلقة ═════════
 echo "🚀 بدء..."
 make_fifo
-start_producer_standby || { echo "فشل البدء"; exit 1; }
+start_producer_standby || { echo "فشل"; exit 1; }
 start_output || { kill_all; exit 1; }
 
 ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
@@ -385,15 +357,12 @@ start_output || { kill_all; exit 1; }
 MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
 
 while true; do
-    # فحص حياة المخرج — إذا مات، أعد التشغيل
     if ! kill -0 $OUT 2>/dev/null; then
-        echo "⚠️ المخرج مات — إعادة تشغيل"
-        kill -9 $PROD 2>/dev/null
-        wait $PROD 2>/dev/null
+        echo "⚠️ المخرج مات — إعادة"
+        kill_all
         sleep 2
         make_fifo
         if [ "$MODE" = "مباشر" ] && [ -n "$ACTIVE" ]; then
-            # أعد تشغيل المنتج المباشر ثم المخرج
             URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
                   --stream-timeout 15 "https://kick.com/$ACTIVE" best \
                   --stream-url 2>/dev/null | grep -m1 "^http")
@@ -429,28 +398,20 @@ while true; do
 
     if [ -n "$FOUND" ]; then
         if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
-            echo "🎯 تبديل إلى: $FOUND"
-            # ─── إيقاف نظيف ───
+            echo "🎯 $FOUND"
             kill_all
             make_fifo
             sleep 1
-
-            # ─── بدء المنتج الجديد ───
-            if start_producer_live "$FOUND_URL" "$FOUND"; then
-                # ─── بدء المخرج الجديد ───
-                if start_output; then
-                    MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
-                    echo "✅ مباشر: $FOUND"
-                else
-                    MODE="فارغ"
-                fi
+            if start_producer_live "$FOUND_URL" "$FOUND" && start_output; then
+                MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
+                echo "✅ مباشر: $FOUND"
             else
                 MODE="فارغ"
             fi
         fi
     else
         if [ "$MODE" != "انتظار" ]; then
-            echo "⏳ عودة إلى الانتظار"
+            echo "⏳ انتظار"
             kill_all
             make_fifo
             sleep 1
