@@ -13,8 +13,6 @@ COLOR_T="#b266ff"
 COLOR_S="#ffffff"
 COLOR_L="#b266ff"
 COLOR_NAME="#d9b3ff"
-BG_TOP="#0d0518"
-BG_BOT="#1a0a30"
 
 FS_T=100
 FS_S=58
@@ -59,7 +57,7 @@ echo "🎬 FPS: $FPS | GOP: $GOP"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
-# ═════════ توليد الخلفية ═════════
+# ═════════ توليد الخلفية — بنفسجي Respect ═════════
 cat > /tmp/make_bg.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFilter
 import sys
@@ -446,4 +444,4 @@ while true; do
     run
     echo "⚠️ إعادة بعد 5 ثوان..."
     sleep 5
-done
+done 
