@@ -316,7 +316,9 @@ run() {
         -analyzeduration 5000000 -probesize 2000000 \
         -max_delay 2000000 \
         -f mpegts -i "$FIFO" \
-        -c copy -max_muxing_queue_size 8192 \
+        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g $GOP -r $FPS \
+        -c:a aac -b:a 128k -ar 44100 -ac 2 \
+        -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
