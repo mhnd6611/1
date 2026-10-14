@@ -57,16 +57,13 @@ echo "🎬 FPS: $FPS | GOP: $GOP"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
-# ═════════ توليد الخلفية — بنفسجي Respect ═════════
 cat > /tmp/make_bg.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFilter
 import sys
-
 W, H = 1920, 1080
 out = sys.argv[1]
 BG_TOP = (13, 5, 24)
 BG_BOT = (26, 10, 48)
-
 img = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(img)
 for y in range(H):
@@ -75,14 +72,12 @@ for y in range(H):
     g = int(BG_TOP[1] + (BG_BOT[1] - BG_TOP[1]) * t)
     b = int(BG_TOP[2] + (BG_BOT[2] - BG_TOP[2]) * t)
     d.line([(0, y), (W, y)], fill=(r, g, b))
-
 img = img.convert("RGBA")
 glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 gd = ImageDraw.Draw(glow)
 gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=(150, 80, 220, 65))
 glow = glow.filter(ImageFilter.GaussianBlur(250))
 img = Image.alpha_composite(img, glow)
-
 pattern = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 pd = ImageDraw.Draw(pattern)
 size = 90
@@ -97,14 +92,12 @@ while y < H + size:
         x += size
     y += size // 2
     row += 1
-
 mask = Image.new("L", (W, H), 0)
 md = ImageDraw.Draw(mask)
 for yy in range(start_y, H):
     a = min(255, int((yy - start_y) / 0.7))
     md.line([(0, yy), (W, yy)], fill=a)
 pattern.putalpha(mask)
-
 img = Image.alpha_composite(img, pattern)
 img.convert("RGB").save(out, "PNG")
 print(f"OK: {out}")
@@ -142,13 +135,11 @@ outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
 direction = sys.argv[8] if len(sys.argv) > 8 else "rtl"
 
 font = load_font(font_path, pointsize, 700)
-
 tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
 d = ImageDraw.Draw(tmp)
 bbox = d.textbbox((0, 0), text, font=font, direction=direction)
 tw = bbox[2] - bbox[0]
 th = bbox[3] - bbox[1]
-
 pad = max(outline_w, 8) + 15
 W = tw + pad * 2
 H = th + pad * 2
@@ -156,13 +147,11 @@ img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
 x = pad - bbox[0]
 y = pad - bbox[1]
-
 if outline_color and outline_w > 0:
     for dx in range(-outline_w, outline_w + 1):
         for dy in range(-outline_w, outline_w + 1):
             if dx*dx + dy*dy <= outline_w*outline_w:
                 d.text((x+dx, y+dy), text, font=font, fill=outline_color, direction=direction)
-
 d.text((x, y), text, font=font, fill=color, direction=direction)
 img.save(output, "PNG")
 PYEOF
@@ -226,7 +215,12 @@ render_ar "$SUBTITLE" "$COLOR_S" $FS_S /tmp/txt/sub.png "black" 3
 [ ! -s /tmp/txt/title.png ] && { echo "❌ فشل الرسم"; exit 1; }
 echo "✅ اكتمل الرسم"
 
-rm -f "$FIFO"; mkfifo "$FIFO"; exec 3<>"$FIFO"
+# ═════════ FIFO يُعاد إنشاؤه لكل producer ═════════
+make_fifo() {
+    rm -f "$FIFO"
+    mkfifo "$FIFO"
+    exec 3<>"$FIFO"
+}
 
 standby_filter() {
     local logo_idx=$1
@@ -265,7 +259,30 @@ standby_filter() {
     echo "$f"
 }
 
-run() {
+# ═════════ تشغيل المخرج — يُستدعى مرة واحدة بعد بدء المنتج ═════════
+start_output() {
+    echo "🔗 فتح اتصال مع Restream..."
+    ffmpeg -y -hide_banner -loglevel warning -nostdin \
+        -thread_queue_size 512 \
+        -fflags +genpts+igndts+discardcorrupt \
+        -analyzeduration 5000000 -probesize 2000000 \
+        -f mpegts -i "$FIFO" \
+        -c copy -max_muxing_queue_size 4096 \
+        -flvflags no_duration_filesize \
+        -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
+    OUT=$!
+    sleep 4
+    if ! kill -0 $OUT 2>/dev/null; then
+        echo "❌ فشل المخرج:"; cat /tmp/out.log
+        return 1
+    fi
+    echo "✅ المخرج شغال (PID: $OUT)"
+    return 0
+}
+
+# ═════════ منتج الانتظار ═════════
+start_producer_standby() {
+    echo "⏳ تشغيل شاشة الانتظار..."
     local inputs=()
     inputs+=(-loop 1 -framerate $FPS -i /tmp/bg.png)
     inputs+=(-loop 1 -framerate $FPS -i /tmp/txt/label.png)
@@ -304,143 +321,150 @@ run() {
         -max_muxing_queue_size 4096 \
         -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     PROD=$!
-    sleep 6
+    sleep 4
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ منتج الانتظار:"; cat /tmp/prod.log; return 1
+        echo "❌ فشل منتج الانتظار:"; cat /tmp/prod.log
+        return 1
     fi
     echo "✅ منتج الانتظار (PID: $PROD)"
+    return 0
+}
 
+# ═════════ منتج البث المباشر ═════════
+start_producer_live() {
+    local M3U8="$1"
+    local NAME="$2"
+    echo "🔴 تشغيل منتج مباشر: $NAME"
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -thread_queue_size 512 \
-        -fflags +genpts+igndts+discardcorrupt \
-        -analyzeduration 5000000 -probesize 2000000 \
-        -f mpegts -i "$FIFO" \
-        -c copy -max_muxing_queue_size 4096 \
-        -flvflags no_duration_filesize \
-        -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
-    OUT=$!
-    sleep 5
-    if ! kill -0 $OUT 2>/dev/null; then
-        echo "❌ المخرج:"; cat /tmp/out.log
-        kill -9 $PROD 2>/dev/null; return 1
+        -headers "User-Agent: $UA" \
+        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+        -reconnect_delay_max 5 \
+        -analyzeduration 2000000 -probesize 2000000 \
+        -fflags +genpts+igndts \
+        -i "$M3U8" \
+        -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
+        -max_muxing_queue_size 4096 \
+        -muxdelay 0.1 -muxpreload 0.1 \
+        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+    PROD=$!
+    sleep 6
+    if ! kill -0 $PROD 2>/dev/null; then
+        echo "⚠️ فشل المنتج $NAME"; tail -n 5 /tmp/prod.log
+        return 1
     fi
-    echo "✅ البث مباشر — منتج=$PROD مخرج=$OUT"
+    echo "✅ منتج مباشر (PID: $PROD)"
+    return 0
+}
 
-    ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
-        OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
-              --json databaseId -q ".[].databaseId" 2>/dev/null | \
-              awk -v m="$GITHUB_RUN_ID" '$1 < m')
-        for R in $OLD; do
-            echo "🛑 إلغاء: $R"
-            timeout 8 gh run cancel "$R" 2>/dev/null
-        done
-      fi ) >/tmp/cancel.log 2>&1 &
+# ═════════ إيقاف كل شيء بشكل نظيف ═════════
+kill_all() {
+    [ -n "$PROD" ] && kill -9 $PROD 2>/dev/null
+    [ -n "$OUT" ] && kill -9 $OUT 2>/dev/null
+    [ -n "$PROD" ] && wait $PROD 2>/dev/null
+    [ -n "$OUT" ] && wait $OUT 2>/dev/null
+    PROD=""
+    OUT=""
+}
 
-    MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
+# ═════════ الحلقة الرئيسية ═════════
+echo "🚀 بدء..."
+make_fifo
+start_producer_standby || { echo "فشل البدء"; exit 1; }
+start_output || { kill_all; exit 1; }
 
-    while true; do
-        if ! kill -0 $OUT 2>/dev/null; then
-            echo "⚠️ المخرج مات"; kill -9 $PROD 2>/dev/null; return 1
-        fi
+( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
+    OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
+          --json databaseId -q ".[].databaseId" 2>/dev/null | \
+          awk -v m="$GITHUB_RUN_ID" '$1 < m')
+    for R in $OLD; do
+        echo "🛑 إلغاء: $R"
+        timeout 8 gh run cancel "$R" 2>/dev/null
+    done
+  fi ) >/tmp/cancel.log 2>&1 &
 
-        if ! kill -0 $PROD 2>/dev/null; then
-            if [ "$MODE" = "مباشر" ]; then
-                MODE="فارغ"; ACTIVE=""; ACTIVE_IDX=-1
-            else
-                local f2
-                f2=$(standby_filter "$logo_idx" "$n2" "$n3")
-                ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" -filter_complex "$f2" \
-                    -map "[v]" -map ${audio_idx}:a:0 \
-                    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
-                    -r $FPS -g $GOP \
-                    -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                    -max_muxing_queue_size 4096 \
-                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-                PROD=$!
-                sleep 3
-            fi
-        fi
+MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
 
-        FOUND=""; FOUND_URL=""; FOUND_IDX=-1
-        LIMIT=${#STREAMERS[@]}
-        if [ "$MODE" = "مباشر" ] && [ "$ACTIVE_IDX" -ge 0 ]; then
-            LIMIT=$((ACTIVE_IDX + 1))
-        fi
-
-        for ((i=0; i<LIMIT; i++)); do
-            S=$(echo "${STREAMERS[$i]}" | xargs); [ -z "$S" ] && continue
+while true; do
+    # فحص حياة المخرج — إذا مات، أعد التشغيل
+    if ! kill -0 $OUT 2>/dev/null; then
+        echo "⚠️ المخرج مات — إعادة تشغيل"
+        kill -9 $PROD 2>/dev/null
+        wait $PROD 2>/dev/null
+        sleep 2
+        make_fifo
+        if [ "$MODE" = "مباشر" ] && [ -n "$ACTIVE" ]; then
+            # أعد تشغيل المنتج المباشر ثم المخرج
             URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
-                  --stream-timeout 15 "https://kick.com/$S" best \
+                  --stream-timeout 15 "https://kick.com/$ACTIVE" best \
                   --stream-url 2>/dev/null | grep -m1 "^http")
             if [ -n "$URL" ]; then
-                FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i; break
+                start_producer_live "$URL" "$ACTIVE" && start_output
+            else
+                MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1
+                start_producer_standby && start_output
             fi
-        done
+        else
+            MODE="انتظار"
+            start_producer_standby && start_output
+        fi
+        sleep 5
+        continue
+    fi
 
-        if [ -n "$FOUND" ]; then
-            if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
-                echo "🎯 $FOUND"
-                kill -9 $PROD 2>/dev/null
-                wait $PROD 2>/dev/null
-                sleep 1
+    FOUND=""; FOUND_URL=""; FOUND_IDX=-1
+    LIMIT=${#STREAMERS[@]}
+    if [ "$MODE" = "مباشر" ] && [ "$ACTIVE_IDX" -ge 0 ]; then
+        LIMIT=$((ACTIVE_IDX + 1))
+    fi
 
-                ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    -headers "User-Agent: $UA" \
-                    -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-                    -reconnect_delay_max 5 \
-                    -analyzeduration 2000000 -probesize 2000000 \
-                    -fflags +genpts+igndts \
-                    -i "$FOUND_URL" \
-                    -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                    -max_muxing_queue_size 4096 \
-                    -muxdelay 0.1 -muxpreload 0.1 \
-                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-                PROD=$!
-                sleep 6
+    for ((i=0; i<LIMIT; i++)); do
+        S=$(echo "${STREAMERS[$i]}" | xargs); [ -z "$S" ] && continue
+        URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
+              --stream-timeout 15 "https://kick.com/$S" best \
+              --stream-url 2>/dev/null | grep -m1 "^http")
+        if [ -n "$URL" ]; then
+            FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i; break
+        fi
+    done
 
-                if kill -0 $PROD 2>/dev/null; then
+    if [ -n "$FOUND" ]; then
+        if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
+            echo "🎯 تبديل إلى: $FOUND"
+            # ─── إيقاف نظيف ───
+            kill_all
+            make_fifo
+            sleep 1
+
+            # ─── بدء المنتج الجديد ───
+            if start_producer_live "$FOUND_URL" "$FOUND"; then
+                # ─── بدء المخرج الجديد ───
+                if start_output; then
                     MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
                     echo "✅ مباشر: $FOUND"
                 else
-                    echo "⚠️ فشل $FOUND"; tail -n 5 /tmp/prod.log; MODE="فارغ"
+                    MODE="فارغ"
                 fi
+            else
+                MODE="فارغ"
             fi
-        else
-            if [ "$MODE" != "انتظار" ]; then
-                echo "⏳ انتظار"
-                kill -9 $PROD 2>/dev/null
-                wait $PROD 2>/dev/null
-                sleep 1
-                local f3
-                f3=$(standby_filter "$logo_idx" "$n2" "$n3")
-                ffmpeg -y -hide_banner -loglevel warning -nostdin \
-                    "${inputs[@]}" -filter_complex "$f3" \
-                    -map "[v]" -map ${audio_idx}:a:0 \
-                    -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p \
-                    -r $FPS -g $GOP \
-                    -c:a aac -b:a 128k -ar 44100 -ac 2 \
-                    -max_muxing_queue_size 4096 \
-                    -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-                PROD=$!
-                sleep 3
+        fi
+    else
+        if [ "$MODE" != "انتظار" ]; then
+            echo "⏳ عودة إلى الانتظار"
+            kill_all
+            make_fifo
+            sleep 1
+            if start_producer_standby && start_output; then
                 MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1
             fi
         fi
+    fi
 
-        TICK=$((TICK+1))
-        if [ $((TICK % 4)) -eq 0 ]; then
-            OS=$(kill -0 $OUT 2>/dev/null && echo حي || echo ميت)
-            PS=$(kill -0 $PROD 2>/dev/null && echo حي || echo ميت)
-            echo "── [$(date -u +%H:%M:%S)] $MODE | OUT=$OS | PROD=$PS ──"
-        fi
-        sleep 15
-    done
-}
-
-echo "🚀 بدء..."
-while true; do
-    run
-    echo "⚠️ إعادة بعد 5 ثوان..."
-    sleep 5
+    TICK=$((TICK+1))
+    if [ $((TICK % 4)) -eq 0 ]; then
+        OS=$(kill -0 $OUT 2>/dev/null && echo حي || echo ميت)
+        PS=$(kill -0 $PROD 2>/dev/null && echo حي || echo ميت)
+        echo "── [$(date -u +%H:%M:%S)] $MODE | OUT=$OS | PROD=$PS ──"
+    fi
+    sleep 15
 done
