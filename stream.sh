@@ -311,12 +311,11 @@ run() {
     echo "✅ منتج الانتظار (PID: $PROD)"
 
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -thread_queue_size 1024 \
+        -thread_queue_size 512 \
         -fflags +genpts+igndts+discardcorrupt \
         -analyzeduration 5000000 -probesize 2000000 \
-        -max_delay 2000000 \
         -f mpegts -i "$FIFO" \
-        -c copy -max_muxing_queue_size 8192 \
+        -c copy -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
@@ -444,4 +443,4 @@ while true; do
     run
     echo "⚠️ إعادة بعد 5 ثوان..."
     sleep 5
-done 
+done
