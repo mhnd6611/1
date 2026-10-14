@@ -43,7 +43,9 @@ RESTREAM_KEY="${RESTREAM_KEY:-}"
 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
-FIFO="/tmp/relay.ts"
+UDP_PORT=9999
+UDP_OUT="udp://127.0.0.1:$UDP_PORT?pkt_size=1316"
+UDP_IN="udp://127.0.0.1:$UDP_PORT?fifo_size=5000000&overrun_nonfatal=1&reuse=1"
 
 FONT_AR=""
 for C in "$HOME/.fonts/Cairo-var.ttf" "$HOME/.fonts/NotoSansArabic-Bold.ttf"; do
@@ -56,15 +58,14 @@ FONT_EN="$HOME/.fonts/Orbitron-var.ttf"
 
 echo "🔤 عربي: $FONT_AR"
 echo "🔤 إنجليزي: $FONT_EN"
-echo "🎬 FPS: $FPS | GOP: $GOP"
+echo "🎬 FPS: $FPS"
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
-# ═════════ سكربت بايثون: كل شيء في صورة واحدة ═════════
+# ═════════ توليد صورة الانتظار كاملة ═════════
 cat > /tmp/make_standby.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-import sys, os
 
 W, H = 1920, 1080
 FONT_AR = "$FONT_AR"
@@ -102,7 +103,6 @@ def load_font(path, size, weight=700):
         pass
     return font
 
-# ─── 1) توليد الخلفية ───
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -119,7 +119,6 @@ gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=GLOW)
 glow = glow.filter(ImageFilter.GaussianBlur(250))
 bg = Image.alpha_composite(bg, glow)
 
-# نمط الماس
 pattern = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 pd = ImageDraw.Draw(pattern)
 size = 90
@@ -142,24 +141,22 @@ for yy in range(start_y, H):
 pattern.putalpha(mask)
 bg = Image.alpha_composite(bg, pattern)
 
-# ─── 2) رسم النصوص كلها على طبقة واحدة ───
+texts = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+td = ImageDraw.Draw(texts)
+
+def draw_outline(xy, text, font, fill, outline, w, direction, anchor):
+    x, y = xy
+    for dx in range(-w, w + 1):
+        for dy in range(-w, w + 1):
+            if dx*dx + dy*dy <= w*w:
+                td.text((x+dx, y+dy), text, font=font, fill=outline, direction=direction, anchor=anchor)
+    td.text((x, y), text, font=font, fill=fill, direction=direction, anchor=anchor)
+
 font_ar = load_font(FONT_AR, FS_T, 700)
 font_ar_sub = load_font(FONT_AR, FS_S, 700)
 font_ar_label = load_font(FONT_AR, FS_L, 700)
 font_en = load_font(FONT_EN, FS_NAME, 700)
 
-texts = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-td = ImageDraw.Draw(texts)
-
-def draw_with_outline(draw, xy, text, font, fill, outline, outline_w, direction, anchor="la"):
-    x, y = xy
-    for dx in range(-outline_w, outline_w + 1):
-        for dy in range(-outline_w, outline_w + 1):
-            if dx*dx + dy*dy <= outline_w*outline_w:
-                draw.text((x+dx, y+dy), text, font=font, fill=outline, direction=direction, anchor=anchor)
-    draw.text((x, y), text, font=font, fill=fill, direction=direction, anchor=anchor)
-
-# قائمة الستريمرز — 3 أسطر
 items = [s.strip() for s in STREAMERS.split(',') if s.strip()]
 total = len(items)
 per_line = max(4, (total + 2) // 3)
@@ -167,67 +164,57 @@ lines = []
 for i in range(0, total, per_line):
     lines.append(items[i:i+per_line])
 
-# السطر الأول: label + السطر الأول من القائمة
-y_pos = Y_LIST
+label_w = td.textlength(LABEL, font=font_ar_label)
+x_start = W - 40
+
 if lines:
     line1 = " ◆ ".join(lines[0]).upper()
-    # label عربي + قائمة إنجليزية
-    label_w = td.textlength(LABEL, font=font_ar_label)
-    full_line1 = LABEL + " " + line1
-    # نرسم كسطر واحد على اليمين
-    x_start = W - 40
-    # ارسم label عربي أولاً (يمين)
-    draw_with_outline(td, (x_start, y_pos), LABEL, font_ar_label, COLOR_L, "black", 2, "rtl", "ra")
-    # ثم القائمة على يسارها
-    td.text((x_start - label_w - 15, y_pos + 2), line1, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
-    # حد أسود للقائمة
+    draw_outline((x_start, Y_LIST), LABEL, font_ar_label, COLOR_L, "black", 2, "rtl", "ra")
+    tx = x_start - label_w - 15
     for dx in range(-1, 2):
         for dy in range(-1, 2):
             if dx == 0 and dy == 0: continue
-            td.text((x_start - label_w - 15 + dx, y_pos + 2 + dy), line1, font=font_en, fill="black", direction="ltr", anchor="ra")
-    td.text((x_start - label_w - 15, y_pos + 2), line1, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
+            td.text((tx+dx, Y_LIST+2+dy), line1, font=font_en, fill="black", direction="ltr", anchor="ra")
+    td.text((tx, Y_LIST+2), line1, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
 
-# السطر 2 و 3 من القائمة
 for idx, line_items in enumerate(lines[1:], start=1):
     line = " ◆ ".join(line_items).upper()
-    y_line = y_pos + idx * (FS_NAME + 20)
-    td.text((W - 40, y_line), line, font=font_en, fill="black", direction="ltr", anchor="ra")
-    td.text((W - 40, y_line), line, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
+    y_line = Y_LIST + idx * (FS_NAME + 20)
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            if dx == 0 and dy == 0: continue
+            td.text((x_start+dx, y_line+dy), line, font=font_en, fill="black", direction="ltr", anchor="ra")
+    td.text((x_start, y_line), line, font=font_en, fill=COLOR_NAME, direction="ltr", anchor="ra")
 
-# العنوان الرئيسي (وسط)
 title_bbox = td.textbbox((0, 0), TITLE, font=font_ar, direction="rtl")
 tw = title_bbox[2] - title_bbox[0]
 title_x = (W + tw) // 2
-draw_with_outline(td, (title_x, Y_TITLE), TITLE, font_ar, COLOR_T, "black", 4, "rtl", "ra")
+draw_outline((title_x, Y_TITLE), TITLE, font_ar, COLOR_T, "black", 4, "rtl", "ra")
 
-# السطر الثاني
 sub_bbox = td.textbbox((0, 0), SUBTITLE, font=font_ar_sub, direction="rtl")
 sw = sub_bbox[2] - sub_bbox[0]
 sub_x = (W + sw) // 2
-draw_with_outline(td, (sub_x, Y_SUB), SUBTITLE, font_ar_sub, COLOR_S, "black", 3, "rtl", "ra")
+draw_outline((sub_x, Y_SUB), SUBTITLE, font_ar_sub, COLOR_S, "black", 3, "rtl", "ra")
 
-# ─── 3) دمج ───
 final = Image.alpha_composite(bg, texts)
 final.convert("RGB").save("/tmp/standby.png", "PNG")
-print("OK: /tmp/standby.png")
+print("OK")
 PYEOF
 
-# ═════════ توليد الصورة ═════════
 echo "🎨 توليد صورة الانتظار..."
 python3 /tmp/make_standby.py
-[ ! -s /tmp/standby.png ] && { echo "❌ فشل توليد الصورة"; exit 1; }
+[ ! -s /tmp/standby.png ] && { echo "❌ فشل الصورة"; exit 1; }
 
-# ═════════ الشعار — تنظيف مسبق ═════════
+# ═════════ الشعار (إعادة ترميز) ═════════
 echo "⬇️ الشعار..."
 LOGO=""
 if curl -sL --max-time 25 -A "Mozilla/5.0" "$LOGO_URL" -o /tmp/logo_raw.png 2>/dev/null; then
     if [ -s /tmp/logo_raw.png ]; then
-        # إعادة ترميز الشعار بـ Pillow (يصلح أي تلف)
         python3 - <<PYEOF
 from PIL import Image
 try:
     img = Image.open("/tmp/logo_raw.png").convert("RGBA")
-    img.thumbnail(($LOGO_W, $LOGO_W * 4), Image.LANCZOS)
+    img.thumbnail(($LOGO_W * 2, $LOGO_W * 4), Image.LANCZOS)
     img.save("/tmp/logo.png", "PNG")
     print("OK")
 except Exception as e:
@@ -239,26 +226,19 @@ PYEOF
 fi
 [ -z "$LOGO" ] && echo "⚠️ بلا شعار"
 
-# ═════════ FIFO + إعادة إنشاء ═════════
-make_fifo() {
-    rm -f "$FIFO"
-    mkfifo "$FIFO"
-    exec 3<>"$FIFO"
-}
-
-# ═════════ المخرج ═════════
+# ═════════ المخرج (يقرأ UDP — لا ينهار) ═════════
 start_output() {
-    echo "🔗 فتح اتصال مع Restream..."
+    echo "🔗 اتصال مع Restream..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -thread_queue_size 512 \
+        -thread_queue_size 1024 \
         -fflags +genpts+igndts+discardcorrupt \
         -analyzeduration 5000000 -probesize 2000000 \
-        -f mpegts -i "$FIFO" \
+        -f mpegts -i "$UDP_IN" \
         -c copy -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
-    sleep 4
+    sleep 5
     if ! kill -0 $OUT 2>/dev/null; then
         echo "❌ فشل المخرج:"; cat /tmp/out.log
         return 1
@@ -267,7 +247,7 @@ start_output() {
     return 0
 }
 
-# ═════════ منتج الانتظار (صورة واحدة فقط + شعار) ═════════
+# ═════════ منتج الانتظار (يرسل UDP) ═════════
 start_producer_standby() {
     echo "⏳ شاشة الانتظار..."
     if [ -n "$LOGO" ]; then
@@ -281,7 +261,7 @@ start_producer_standby() {
             -r $FPS -g $GOP \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
-            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+            -f mpegts "$UDP_OUT" >/tmp/prod.log 2>&1 &
     else
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -loop 1 -framerate $FPS -i /tmp/standby.png \
@@ -291,19 +271,17 @@ start_producer_standby() {
             -r $FPS -g $GOP \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
-            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+            -f mpegts "$UDP_OUT" >/tmp/prod.log 2>&1 &
     fi
     PROD=$!
     sleep 4
     if ! kill -0 $PROD 2>/dev/null; then
-        echo "❌ فشل منتج الانتظار:"; cat /tmp/prod.log
-        return 1
+        echo "❌ فشل المنتج:"; cat /tmp/prod.log; return 1
     fi
     echo "✅ منتج الانتظار (PID: $PROD)"
     return 0
 }
 
-# ═════════ منتج البث المباشر ═════════
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
@@ -318,7 +296,7 @@ start_producer_live() {
         -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 \
         -muxdelay 0.1 -muxpreload 0.1 \
-        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+        -f mpegts "$UDP_OUT" >/tmp/prod.log 2>&1 &
     PROD=$!
     sleep 6
     if ! kill -0 $PROD 2>/dev/null; then
@@ -329,20 +307,23 @@ start_producer_live() {
     return 0
 }
 
-kill_all() {
+kill_producer() {
     [ -n "$PROD" ] && kill -9 $PROD 2>/dev/null
-    [ -n "$OUT" ] && kill -9 $OUT 2>/dev/null
     [ -n "$PROD" ] && wait $PROD 2>/dev/null
-    [ -n "$OUT" ] && wait $OUT 2>/dev/null
     PROD=""
+}
+
+kill_all() {
+    kill_producer
+    [ -n "$OUT" ] && kill -9 $OUT 2>/dev/null
+    [ -n "$OUT" ] && wait $OUT 2>/dev/null
     OUT=""
 }
 
-# ═════════ الحلقة ═════════
+# ═════════ التشغيل ═════════
 echo "🚀 بدء..."
-make_fifo
-start_producer_standby || { echo "فشل"; exit 1; }
-start_output || { kill_all; exit 1; }
+start_producer_standby || exit 1
+start_output || { kill_producer; exit 1; }
 
 ( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
     OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
@@ -359,24 +340,30 @@ MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1; TICK=0
 while true; do
     if ! kill -0 $OUT 2>/dev/null; then
         echo "⚠️ المخرج مات — إعادة"
-        kill_all
+        kill_producer
         sleep 2
-        make_fifo
+        start_output || exit 1
+        sleep 3
+        continue
+    fi
+
+    if ! kill -0 $PROD 2>/dev/null; then
+        echo "⚠️ المنتج مات — إعادة"
         if [ "$MODE" = "مباشر" ] && [ -n "$ACTIVE" ]; then
             URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
                   --stream-timeout 15 "https://kick.com/$ACTIVE" best \
                   --stream-url 2>/dev/null | grep -m1 "^http")
             if [ -n "$URL" ]; then
-                start_producer_live "$URL" "$ACTIVE" && start_output
+                start_producer_live "$URL" "$ACTIVE"
             else
                 MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1
-                start_producer_standby && start_output
+                start_producer_standby
             fi
         else
             MODE="انتظار"
-            start_producer_standby && start_output
+            start_producer_standby
         fi
-        sleep 5
+        sleep 3
         continue
     fi
 
@@ -399,10 +386,9 @@ while true; do
     if [ -n "$FOUND" ]; then
         if [ "$MODE" != "مباشر" ] || [ "$ACTIVE" != "$FOUND" ]; then
             echo "🎯 $FOUND"
-            kill_all
-            make_fifo
+            kill_producer
             sleep 1
-            if start_producer_live "$FOUND_URL" "$FOUND" && start_output; then
+            if start_producer_live "$FOUND_URL" "$FOUND"; then
                 MODE="مباشر"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
                 echo "✅ مباشر: $FOUND"
             else
@@ -412,10 +398,9 @@ while true; do
     else
         if [ "$MODE" != "انتظار" ]; then
             echo "⏳ انتظار"
-            kill_all
-            make_fifo
+            kill_producer
             sleep 1
-            if start_producer_standby && start_output; then
+            if start_producer_standby; then
                 MODE="انتظار"; ACTIVE=""; ACTIVE_IDX=-1
             fi
         fi
