@@ -31,6 +31,10 @@ LOGO_CYCLE=7
 
 FPS=60
 GOP=120
+
+BG_TOP_R=13; BG_TOP_G=5;  BG_TOP_B=24
+BG_BOT_R=26; BG_BOT_G=10; BG_BOT_B=48
+GLOW_R=150;  GLOW_G=80;   GLOW_B=220
 # ═════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
@@ -58,14 +62,14 @@ IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
 # ═════════ توليد الخلفية ═════════
-cat > /tmp/make_bg.py <<'PYEOF'
+cat > /tmp/make_bg.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter
 import sys
 
 W, H = 1920, 1080
 out = sys.argv[1]
-BG_TOP = (13, 5, 24)
-BG_BOT = (26, 10, 48)
+BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
+BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
 
 img = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(img)
@@ -79,7 +83,7 @@ for y in range(H):
 img = img.convert("RGBA")
 glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 gd = ImageDraw.Draw(glow)
-gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=(150, 80, 220, 65))
+gd.ellipse([W//2 - 700, H//2 - 500, W//2 + 700, H//2 + 500], fill=($GLOW_R, $GLOW_G, $GLOW_B, 65))
 glow = glow.filter(ImageFilter.GaussianBlur(250))
 img = Image.alpha_composite(img, glow)
 
@@ -316,9 +320,7 @@ run() {
         -analyzeduration 5000000 -probesize 2000000 \
         -max_delay 2000000 \
         -f mpegts -i "$FIFO" \
-        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g $GOP -r $FPS \
-        -c:a aac -b:a 128k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 \
+        -c copy -max_muxing_queue_size 8192 \
         -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
