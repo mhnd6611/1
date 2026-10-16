@@ -12,7 +12,7 @@ LABEL="قائمة الستريمرز:"
 COLOR_T="#b266ff"
 COLOR_S="#ffffff"
 COLOR_L="#ffffff"
-COLOR_NAME="#d9b3ff"
+COLOR_NAME="#FFD300"
 
 FS_T=100
 FS_S=58
