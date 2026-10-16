@@ -11,7 +11,7 @@ LABEL="قائمة الستريمرز:"
 
 COLOR_T="#b266ff"
 COLOR_S="#ffffff"
-COLOR_L="#b266ff"
+COLOR_L="#ffffff"
 COLOR_NAME="#d9b3ff"
 
 FS_T=100
