@@ -19,7 +19,7 @@ FS_S=58
 FS_L=22
 FS_NAME=22
 
-Y_LIST=60
+Y_LIST=490
 Y_TITLE=200
 Y_SUB=370
 
@@ -114,9 +114,21 @@ img.convert("RGB").save(out, "PNG")
 print(f"OK: {out}")
 PYEOF
 
-FONT_LOADER='
+# ═════════ سكربت رسم النص مع توهج ═════════
+cat > /tmp/render.py <<'PYEOF'
+import sys
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+text = sys.argv[1]
+color = sys.argv[2]
+pointsize = int(sys.argv[3])
+output = sys.argv[4]
+font_path = sys.argv[5]
+outline_color = sys.argv[6] if len(sys.argv) > 6 else None
+outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
+direction = sys.argv[8] if len(sys.argv) > 8 else "rtl"
+
 def load_font(path, size, weight=700):
-    from PIL import ImageFont
     font = ImageFont.truetype(path, size)
     try:
         axes = font.get_variation_axes()
@@ -129,21 +141,6 @@ def load_font(path, size, weight=700):
     except Exception:
         pass
     return font
-'
-
-cat > /tmp/render.py <<PYEOF
-import sys
-from PIL import Image, ImageDraw
-$FONT_LOADER
-
-text = sys.argv[1]
-color = sys.argv[2]
-pointsize = int(sys.argv[3])
-output = sys.argv[4]
-font_path = sys.argv[5]
-outline_color = sys.argv[6] if len(sys.argv) > 6 else None
-outline_w = int(sys.argv[7]) if len(sys.argv) > 7 else 0
-direction = sys.argv[8] if len(sys.argv) > 8 else "rtl"
 
 font = load_font(font_path, pointsize, 700)
 
@@ -153,22 +150,44 @@ bbox = d.textbbox((0, 0), text, font=font, direction=direction)
 tw = bbox[2] - bbox[0]
 th = bbox[3] - bbox[1]
 
-pad = max(outline_w, 8) + 15
+pad = max(outline_w, 8) + 35
 W = tw + pad * 2
 H = th + pad * 2
-img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-d = ImageDraw.Draw(img)
-x = pad - bbox[0]
-y = pad - bbox[1]
 
+c = color.lstrip('#')
+r, g, b = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
+
+gx = pad - bbox[0]
+gy = pad - bbox[1]
+
+glow_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+for radius, alpha in [(35, 80), (20, 140), (10, 200)]:
+    temp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    td = ImageDraw.Draw(temp)
+    td.text((gx, gy), text, font=font, fill=(r, g, b, alpha), direction=direction)
+    temp = temp.filter(ImageFilter.GaussianBlur(radius))
+    glow_layer = Image.alpha_composite(glow_layer, temp)
+
+outline_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+od = ImageDraw.Draw(outline_layer)
 if outline_color and outline_w > 0:
+    if outline_color == "black":
+        oc_rgb = (0, 0, 0, 255)
+    else:
+        oc = outline_color.lstrip('#')
+        oc_rgb = tuple(int(oc[i:i+2], 16) for i in (0, 2, 4)) + (255,)
     for dx in range(-outline_w, outline_w + 1):
         for dy in range(-outline_w, outline_w + 1):
             if dx*dx + dy*dy <= outline_w*outline_w:
-                d.text((x+dx, y+dy), text, font=font, fill=outline_color, direction=direction)
+                od.text((gx+dx, gy+dy), text, font=font, fill=oc_rgb, direction=direction)
 
-d.text((x, y), text, font=font, fill=color, direction=direction)
-img.save(output, "PNG")
+text_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+td = ImageDraw.Draw(text_layer)
+td.text((gx, gy), text, font=font, fill=(r, g, b, 255), direction=direction)
+
+final = Image.alpha_composite(glow_layer, outline_layer)
+final = Image.alpha_composite(final, text_layer)
+final.save(output, "PNG")
 PYEOF
 
 render_ar() { python3 /tmp/render.py "$1" "$2" "$3" "$4" "$FONT_AR" "$5" "$6" "rtl"; }
@@ -240,18 +259,18 @@ standby_filter() {
     local next="0:v"
     local idx=1
 
-    f="[0:v][${idx}:v]overlay=x=W-w-40:y=$Y_LIST[a]"
+    f="[0:v][${idx}:v]overlay=x=(W-w)/2:y=$Y_LIST[a]"
     next="a"; idx=$((idx+1))
 
-    f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50))[b]"
+    f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$((Y_LIST + 55))[b]"
     next="b"; idx=$((idx+1))
 
     if [ "$n2" = "1" ]; then
-        f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50 + FS_NAME + 20))[c]"
+        f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$((Y_LIST + 55 + FS_NAME + 15))[c]"
         next="c"; idx=$((idx+1))
     fi
     if [ "$n3" = "1" ]; then
-        f="$f;[${next}][${idx}:v]overlay=x=W-w-40:y=$((Y_LIST + 50 + (FS_NAME + 20) * 2))[d]"
+        f="$f;[${next}][${idx}:v]overlay=x=(W-w)/2:y=$((Y_LIST + 55 + (FS_NAME + 15) * 2))[d]"
         next="d"; idx=$((idx+1))
     fi
 
