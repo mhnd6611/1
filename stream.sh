@@ -114,7 +114,7 @@ img.convert("RGB").save(out, "PNG")
 print(f"OK: {out}")
 PYEOF
 
-# ═════════ سكربت رسم النص مع توهج ═════════
+# ═════════ سكربت رسم النص مع توهج متناسب ═════════
 cat > /tmp/render.py <<'PYEOF'
 import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -161,7 +161,11 @@ gx = pad - bbox[0]
 gy = pad - bbox[1]
 
 glow_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-for radius, alpha in [(35, 80), (20, 140), (10, 200)]:
+scale = pointsize / 100
+r1 = max(6, int(35 * scale))
+r2 = max(4, int(20 * scale))
+r3 = max(2, int(10 * scale))
+for radius, alpha in [(r1, 80), (r2, 140), (r3, 200)]:
     temp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     td = ImageDraw.Draw(temp)
     td.text((gx, gy), text, font=font, fill=(r, g, b, alpha), direction=direction)
@@ -238,10 +242,10 @@ BG_IMG="/tmp/bg.png"
 echo "🖌️ رسم النصوص..."
 mkdir -p /tmp/txt && rm -f /tmp/txt/*.png
 
-render_ar "$LABEL" "$COLOR_L" $FS_L /tmp/txt/label.png "black" 2
-[ -n "$LIST_LINE1" ] && render_en "$(echo "$LIST_LINE1" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l1.png "black" 1
-[ -n "$LIST_LINE2" ] && render_en "$(echo "$LIST_LINE2" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l2.png "black" 1
-[ -n "$LIST_LINE3" ] && render_en "$(echo "$LIST_LINE3" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l3.png "black" 1
+render_ar "$LABEL" "$COLOR_L" $FS_L /tmp/txt/label.png "black" 3
+[ -n "$LIST_LINE1" ] && render_en "$(echo "$LIST_LINE1" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l1.png "black" 3
+[ -n "$LIST_LINE2" ] && render_en "$(echo "$LIST_LINE2" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l2.png "black" 3
+[ -n "$LIST_LINE3" ] && render_en "$(echo "$LIST_LINE3" | tr '[:lower:]' '[:upper:]')" "$COLOR_NAME" $FS_NAME /tmp/txt/l3.png "black" 3
 
 render_ar "$TITLE" "$COLOR_T" $FS_T /tmp/txt/title.png "black" 4
 render_ar "$SUBTITLE" "$COLOR_S" $FS_S /tmp/txt/sub.png "black" 3
@@ -334,16 +338,15 @@ run() {
     echo "✅ منتج الانتظار (PID: $PROD)"
 
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -thread_queue_size 1024 \
-        -fflags +genpts+igndts+discardcorrupt \
-        -analyzeduration 5000000 -probesize 2000000 \
-        -max_delay 2000000 \
+        -thread_queue_size 512 \
         -f mpegts -i "$FIFO" \
-        -c copy -max_muxing_queue_size 8192 \
+        -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g $GOP -r $FPS \
+        -c:a aac -b:a 128k -ar 44100 -ac 2 \
+        -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
-    sleep 5
+    sleep 6
     if ! kill -0 $OUT 2>/dev/null; then
         echo "❌ المخرج:"; cat /tmp/out.log
         kill -9 $PROD 2>/dev/null; return 1
