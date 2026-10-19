@@ -1,4 +1,4 @@
-name: 24/7 Master Multi-Streamer Broadcast
+name: Respect 24-7 Luxury Broadcast
 
 on:
   workflow_dispatch:
@@ -6,6 +6,8 @@ on:
       restream_key:
         required: false
         default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7'
+  schedule:
+    - cron: '0 */6 * * *' # احتياطي في حال توقف الرن
 
 permissions:
   actions: write
@@ -15,6 +17,7 @@ jobs:
   broadcast:
     runs-on: ubuntu-latest
     timeout-minutes: 355
+
     steps:
       - name: جلب الملفات
         uses: actions/checkout@v3
@@ -23,7 +26,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-pillow-v3
+          key: pip-pillow-respect-v1
 
       - name: تثبيت الأدوات
         run: |
@@ -102,7 +105,7 @@ jobs:
       - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}
-          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,aymnalsatam,okb8,wolf,NASSER,W1pey,RAYAN,moustache,klash,ALRND,AL_Hashidi,iSLF,OGxHusni,NEFOXD,Rayan_a3'
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
