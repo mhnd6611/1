@@ -3,38 +3,40 @@ set +m
 
 # ═══════════════════════════════════════════════════
 #  Respect Broadcast — Kick → Restream
-#  شاشة انتظار متحركة + Bitrate محسّن
+#  Luxury Glassmorphism UI + Floating Animations
 # ═══════════════════════════════════════════════════
 
 # ─── الإعدادات ───
 TITLE_AR="لم يبدأ ستريمرز ريسبكت"
-SUBTITLE_AR="جاري انتضار ستريمرز ريسبكت المذكورين اعلاه"
+SUBTITLE_AR="جاري انتظار ستريمرز ريسبكت المذكورين ادناه"
 LABEL_AR="قائمة الستريمرز:"
 
-COLOR_TITLE="#b266ff"
+# ألوان هوية ريسبكت (بنفسجي سيادي)
+COLOR_TITLE="#d4b3ff"
 COLOR_SUB="#ffffff"
-COLOR_LABEL="#ffffff"
-COLOR_LIST="#FFD300"
+COLOR_LABEL="#e6ccff"
+COLOR_CARD_TEXT="#ffffff"
+COLOR_CARD_BORDER="#a64dff"
+
 BG_TOP_R=13; BG_TOP_G=5;  BG_TOP_B=24
 BG_BOT_R=26; BG_BOT_G=10; BG_BOT_B=48
 GLOW_R=150;  GLOW_G=80;   GLOW_B=220
 
-FONT_SIZE_TITLE=100
-FONT_SIZE_SUB=58
-FONT_SIZE_LABEL=22
-FONT_SIZE_LIST=22
+FONT_SIZE_TITLE=95
+FONT_SIZE_SUB=45
+FONT_SIZE_LIST=26
 
-Y_LIST=490
 Y_TITLE=200
-Y_SUB=370
+Y_SUB=330
+Y_GRID_START=430
 
-STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,aymnalsatam,IB6H,okb8,Hook,wolf,W1pey,RAYAN,moustache,klash,ALRND,Rayan_a3}"
+STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER}"
 
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
-LOGO_W=150
-LOGO_BOTTOM=40
-LOGO_SHOW=5
-LOGO_CYCLE=7
+LOGO_W=160
+Y_LOGO=60
+LOGO_SHOW=6
+LOGO_CYCLE=8
 
 FPS=60
 GOP=120
@@ -48,6 +50,7 @@ RESTREAM_KEY="${RESTREAM_KEY:-}"
 
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
+WORKDIR="/tmp/respect_ui"
 
 # ─── الخطوط ───
 FONT_AR=""
@@ -64,14 +67,17 @@ echo "🔤 الخطوط: عربي=$FONT_AR | إنجليزي=$FONT_EN"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 
+mkdir -p "$WORKDIR"
+
 # ═══════════════════════════════════════════════════
-#  توليد صور الشاشة
+#  توليد الصور (Glassmorphism)
 # ═══════════════════════════════════════════════════
-cat > /tmp/make_standby.py <<PYEOF
+cat > /tmp/make_respect.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
-import urllib.request, io, os
+import urllib.request, io, os, math
 
 W, H = 1920, 1080
+WORKDIR = "$WORKDIR"
 FONT_AR = "$FONT_AR"
 FONT_EN = "$FONT_EN"
 TITLE = "$TITLE_AR"
@@ -80,34 +86,29 @@ LABEL = "$LABEL_AR"
 C_TITLE = "$COLOR_TITLE"
 C_SUB = "$COLOR_SUB"
 C_LABEL = "$COLOR_LABEL"
-C_LIST = "$COLOR_LIST"
+C_CARD_TEXT = "$COLOR_CARD_TEXT"
+C_CARD_BORDER = "$COLOR_CARD_BORDER"
 FS_TITLE = $FONT_SIZE_TITLE
 FS_SUB = $FONT_SIZE_SUB
-FS_LABEL = $FONT_SIZE_LABEL
 FS_LIST = $FONT_SIZE_LIST
-Y_LIST = $Y_LIST
 Y_TITLE = $Y_TITLE
 Y_SUB = $Y_SUB
+Y_GRID_START = $Y_GRID_START
 BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
 BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
-GLOW = ($GLOW_R, $GLOW_G, $GLOW_B, 70)
+GLOW = ($GLOW_R, $GLOW_G, $GLOW_B, 60)
 LOGO_URL = "$LOGO_URL"
 LOGO_W = $LOGO_W
 STREAMERS_STR = "$STREAMERS_LIST"
-os.makedirs("/tmp/sxb", exist_ok=True)
 
 def load_font(path, size, weight=700):
     font = ImageFont.truetype(path, size)
     try:
         axes = font.get_variation_axes()
-        if len(axes) == 1:
-            font.set_variation_by_axes([weight])
-        elif len(axes) == 2:
-            font.set_variation_by_axes([0, weight])
-        elif len(axes) == 3:
-            font.set_variation_by_axes([0, weight, 0])
-    except Exception:
-        pass
+        if len(axes) == 1: font.set_variation_by_axes([weight])
+        elif len(axes) == 2: font.set_variation_by_axes([0, weight])
+        elif len(axes) == 3: font.set_variation_by_axes([0, weight, 0])
+    except Exception: pass
     return font
 
 # ═══ 1) الخلفية ═══
@@ -123,144 +124,131 @@ bg = bg.convert("RGBA")
 
 glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 gd = ImageDraw.Draw(glow)
-gd.ellipse([W//2 - 800, H//2 - 600, W//2 + 800, H//2 + 600], fill=GLOW)
-glow = glow.filter(ImageFilter.GaussianBlur(300))
+gd.ellipse([W//2 - 900, H//2 - 600, W//2 + 900, H//2 + 600], fill=GLOW)
+glow = glow.filter(ImageFilter.GaussianBlur(350))
 bg = Image.alpha_composite(bg, glow)
 
+# نمط سداسي خفيف في الخلفية
 pattern = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 pd = ImageDraw.Draw(pattern)
-size = 80
-start_y = H - 280
-row = 0
-y = start_y
-while y < H + size:
-    x = (size // 2) if row % 2 else 0
-    while x < W + size:
+size = 120
+for y in range(-size, H + size, int(size * 0.866)):
+    for x in range(-size, W + size, int(size * 1.5)):
         pts = [(x, y - size//2), (x + size//2, y), (x, y + size//2), (x - size//2, y)]
-        pd.polygon(pts, outline=(0, 0, 0, 200), width=2)
-        x += size
-    y += size // 2
-    row += 1
-mask = Image.new("L", (W, H), 0)
-md = ImageDraw.Draw(mask)
-for yy in range(start_y, H):
-    a = min(255, int((yy - start_y) / 0.7))
-    md.line([(0, yy), (W, yy)], fill=a)
-pattern.putalpha(mask)
+        pd.polygon(pts, outline=(255, 255, 255, 10), width=2)
 bg = Image.alpha_composite(bg, pattern)
-bg.convert("RGB").save("/tmp/sxb/bg.png", "PNG")
-print("✅ bg.png")
+bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
 # ═══ 2) دالة رسم نص مع توهج ═══
 def make_text_png(text, font, color, out, direction="rtl"):
     c = color.lstrip("#")
     r, g, b = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
-
     tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
     td = ImageDraw.Draw(tmp)
     bbox = td.textbbox((0, 0), text, font=font, direction=direction)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
     pad = 80
-    Wn = tw + pad * 2
-    Hn = th + pad * 2
-
+    Wn = bbox[2] - bbox[0] + pad * 2
+    Hn = bbox[3] - bbox[1] + pad * 2
+    gx, gy = pad - bbox[0], pad - bbox[1]
+    
     glow_layer = Image.new("RGBA", (Wn, Hn), (0, 0, 0, 0))
-    gx = pad - bbox[0]
-    gy = pad - bbox[1]
-    for radius, alpha in [(40, 90), (25, 140), (12, 200)]:
+    for radius, alpha in [(40, 90), (20, 150), (8, 220)]:
         t = Image.new("RGBA", (Wn, Hn), (0, 0, 0, 0))
-        tdd = ImageDraw.Draw(t)
-        tdd.text((gx, gy), text, font=font, fill=(r, g, b, alpha), direction=direction)
-        t = t.filter(ImageFilter.GaussianBlur(radius))
-        glow_layer = Image.alpha_composite(glow_layer, t)
-
-    outline = Image.new("RGBA", (Wn, Hn), (0, 0, 0, 0))
-    od = ImageDraw.Draw(outline)
-    ow = max(3, int(font.size / 22))
-    for dx in range(-ow, ow + 1):
-        for dy in range(-ow, ow + 1):
-            if dx*dx + dy*dy <= ow*ow:
-                od.text((gx+dx, gy+dy), text, font=font, fill=(0, 0, 0, 255), direction=direction)
-
+        ImageDraw.Draw(t).text((gx, gy), text, font=font, fill=(r, g, b, alpha), direction=direction)
+        glow_layer = Image.alpha_composite(glow_layer, t.filter(ImageFilter.GaussianBlur(radius)))
+    
     txt = Image.new("RGBA", (Wn, Hn), (0, 0, 0, 0))
-    td2 = ImageDraw.Draw(txt)
-    td2.text((gx, gy), text, font=font, fill=(r, g, b, 255), direction=direction)
-
-    final = Image.alpha_composite(glow_layer, outline)
-    final = Image.alpha_composite(final, txt)
+    ImageDraw.Draw(txt).text((gx, gy), text, font=font, fill=(r, g, b, 255), direction=direction)
+    final = Image.alpha_composite(glow_layer, txt)
     final.save(out, "PNG")
-    print(f"✅ {out}")
 
 font_title = load_font(FONT_AR, FS_TITLE, 900)
 font_sub = load_font(FONT_AR, FS_SUB, 700)
-make_text_png(TITLE, font_title, C_TITLE, "/tmp/sxb/title.png", "rtl")
-make_text_png(SUBTITLE, font_sub, C_SUB, "/tmp/sxb/sub.png", "rtl")
+make_text_png(TITLE, font_title, C_TITLE, f"{WORKDIR}/title.png", "rtl")
+make_text_png(SUBTITLE, font_sub, C_SUB, f"{WORKDIR}/sub.png", "rtl")
 
-# ═══ 3) قائمة الستريمرز (3 أسطر) ═══
+# ═══ 3) بطاقات الستريمرز (Glassmorphism) ═══
 items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
-total = len(items)
-per_line = max(4, (total + 2) // 3)
-lines = []
-for i in range(0, total, per_line):
-    lines.append(items[i:i+per_line])
-
-font_label = load_font(FONT_AR, FS_LABEL, 700)
 font_list = load_font(FONT_EN, FS_LIST, 700)
 
-# قياس
-tmp_l = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-dl = ImageDraw.Draw(tmp_l)
-label_bbox = dl.textbbox((0, 0), LABEL, font=font_label, direction="rtl")
-label_w = label_bbox[2] - label_bbox[0]
+# إعدادات الشبكة
+COLS = 4
+ROWS = (len(items) + COLS - 1) // COLS
+CARD_W = 320
+CARD_H = 85
+GAP_X = 35
+GAP_Y = 30
+GRID_W = COLS * CARD_W + (COLS - 1) * GAP_X
+GRID_H = ROWS * CARD_H + (ROWS - 1) * GAP_Y
 
-# أعرض سطر
-max_line_w = 0
-line_w_list = []
-for line_items in lines:
-    line_text = " ◆ ".join(line_items).upper()
-    bb = dl.textbbox((0, 0), line_text, font=font_list)
-    w = bb[2] - bb[0]
-    line_w_list.append(w)
-    max_line_w = max(max_line_w, w)
+grid_img = Image.new("RGBA", (GRID_W, GRID_H), (0, 0, 0, 0))
 
-list_H = 60 + len(lines) * (FS_LIST + 25)
-list_W = max(max_line_w, label_w) + 100
+for i, item in enumerate(items):
+    row = i // COLS
+    col = i % COLS
+    x = col * (CARD_W + GAP_X)
+    y = row * (CARD_H + GAP_Y)
+    
+    # إنشاء البطاقة الزجاجية
+    card = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+    cd = ImageDraw.Draw(card)
+    
+    # خلفية زجاجية وتوهج داخلي
+    cd.rounded_rectangle([(0,0), (CARD_W, CARD_H)], radius=15, fill=(255, 255, 255, 15), outline=(166, 77, 255, 120), width=2)
+    # خط داخلي خفيف لإعطاء تأثير الزجاج
+    cd.rounded_rectangle([(2,2), (CARD_W-2, CARD_H-2)], radius=13, outline=(255, 255, 255, 40), width=1)
+    
+    # النص
+    bbox = cd.textbbox((0, 0), item.upper(), font=font_list)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    tx = (CARD_W - tw) // 2 - bbox[0]
+    ty = (CARD_H - th) // 2 - bbox[1]
+    
+    cd.text((tx, ty), item.upper(), font=font_list, fill=C_CARD_TEXT)
+    
+    # توهج خلف النص
+    glow_txt = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+    ImageDraw.Draw(glow_txt).text((tx, ty), item.upper(), font=font_list, fill=(255, 255, 255, 150))
+    glow_txt = glow_txt.filter(ImageFilter.GaussianBlur(8))
+    
+    card = Image.alpha_composite(card, glow_txt)
+    grid_img.alpha_composite(card, (x, y))
 
-list_img = Image.new("RGBA", (list_W, list_H), (0, 0, 0, 0))
-ld = ImageDraw.Draw(list_img)
+# حفظ الشبكة كصورة واحدة
+grid_img.save(f"{WORKDIR}/grid.png", "PNG")
 
-# Label (يمين)
-lx = list_W - 10
-ld.text((lx, 20), LABEL, font=font_label, fill=C_LABEL, direction="rtl", anchor="ra")
+# ═══ 4) تجميع المحتوى (Title + Sub + Grid) في صورة واحدة للتحكم في الحركة ═══
+content = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 
-# قائمة (يمين)
-for idx, line_items in enumerate(lines):
-    line_text = " ◆ ".join(line_items).upper()
-    y_line = 20 + (idx + 1) * (FS_LIST + 15)
-    ld.text((lx, y_line), line_text, font=font_list, fill=C_LIST, direction="ltr", anchor="ra")
+# العناوين
+title_img = Image.open(f"{WORKDIR}/title.png").convert("RGBA")
+sub_img = Image.open(f"{WORKDIR}/sub.png").convert("RGBA")
 
-list_img.save("/tmp/sxb/list.png", "PNG")
-print(f"✅ list.png {list_W}x{list_H}")
+content.alpha_composite(title_img, ((W - title_img.width)//2, Y_TITLE))
+content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB))
+content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
 
-# ═══ 4) الشعار ═══
+content.save(f"{WORKDIR}/content.png", "PNG")
+
+# ═══ 5) الشعار ═══
 try:
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
     logo_data = urllib.request.urlopen(req, timeout=25).read()
     logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
     ratio = LOGO_W / logo.width
     logo = logo.resize((LOGO_W, int(logo.height * ratio)), Image.LANCZOS)
-    logo.save("/tmp/sxb/logo.png", "PNG")
-    print(f"✅ logo.png {logo.width}x{logo.height}")
+    logo.save(f"{WORKDIR}/logo.png", "PNG")
 except Exception as e:
     print(f"⚠️ logo fail: {e}")
     ph = Image.new("RGBA", (LOGO_W, LOGO_W), (0, 0, 0, 0))
-    ph.save("/tmp/sxb/logo.png", "PNG")
+    ph.save(f"{WORKDIR}/logo.png", "PNG")
+
+print("✅ اكتمل التوليد")
 PYEOF
 
 echo "🎨 توليد صور الشاشة..."
-python3 /tmp/make_standby.py
-[ ! -s /tmp/sxb/bg.png ] && { echo "❌ فشل التوليد"; exit 1; }
+python3 /tmp/make_respect.py
+[ ! -s "$WORKDIR/bg.png" ] && { echo "❌ فشل التوليد"; exit 1; }
 
 # ═══════════════════════════════════════════════════
 #  FIFO
@@ -270,29 +258,26 @@ mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 # ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار (متحركة)
+#  منتج شاشة الانتظار (متحركة وسلسة)
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
+    # - 0: bg, 1: content, 2: logo
+    # - تحريك المحتوى (شبكة + نصوص) للأعلى والأسفل بنعومة
+    # - تنفس الإضاءة للخلفية
+    # - نبض وتكبير الشعار
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -loop 1 -framerate $FPS -i /tmp/sxb/bg.png \
-        -loop 1 -framerate $FPS -i /tmp/sxb/list.png \
-        -loop 1 -framerate $FPS -i /tmp/sxb/title.png \
-        -loop 1 -framerate $FPS -i /tmp/sxb/sub.png \
-        -loop 1 -framerate $FPS -i /tmp/sxb/logo.png \
+        -loop 1 -framerate $FPS -i "$WORKDIR/bg.png" \
+        -loop 1 -framerate $FPS -i "$WORKDIR/content.png" \
+        -loop 1 -framerate $FPS -i "$WORKDIR/logo.png" \
         -f lavfi -i "anullsrc=r=44100:cl=stereo" \
         -filter_complex "\
-[0:v]format=rgba[bg];\
-[1:v]format=rgba[list];\
-[bg][list]overlay=x=(W-w)/2:y=$Y_LIST[v1];\
-[2:v]format=rgba[title];\
-[v1][title]overlay=x=(W-w)/2:y=$Y_TITLE[v2];\
-[3:v]format=rgba[sub];\
-[v2][sub]overlay=x=(W-w)/2:y=$Y_SUB[v3];\
-[4:v]format=rgba,scale='$LOGO_W*(1+0.06*sin(2*PI*t/3.5))':-1:eval=frame[logo_big];\
-[v3][logo_big]overlay=x=(W-w)/2:y=H-h-$LOGO_BOTTOM:enable='between(mod(t\,$LOGO_CYCLE)\,0.3\,$LOGO_SHOW)'[v4];\
-[v4]eq=brightness='0.02*sin(2*PI*t/5)':eval=frame[vout]" \
-        -map "[vout]" -map 5:a:0 \
+[0:v]format=rgba,eq=brightness='0.02*sin(2*PI*t/6)':eval=frame[bg];\
+[1:v]format=rgba[content];\
+[bg][content]overlay=x=(W-w)/2:y='(H-h)/2 + 12*sin(2*PI*t/5)':eval=frame[v1];\
+[2:v]format=rgba,scale='iw*(1+0.04*sin(2*PI*t/3))':-1:eval=frame[logo_anim];\
+[v1][logo_anim]overlay=x=(W-w)/2:y=$Y_LOGO:enable='between(mod(t\,$LOGO_CYCLE)\,0.5\,$LOGO_SHOW)'[vout]" \
+        -map "[vout]" -map 3:a:0 \
         -c:v libx264 -preset ultrafast -tune zerolatency \
         -pix_fmt yuv420p -r $FPS -g $GOP \
         -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -312,7 +297,7 @@ start_producer_live() {
         -headers "User-Agent: $UA" \
         -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
         -reconnect_delay_max 5 \
-        -analyzeduration 2000000 -probesize 2000000 \
+        -analyzeduration 1000000 -probesize 1000000 \
         -fflags +genpts+igndts \
         -i "$M3U8" \
         -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
@@ -323,7 +308,7 @@ start_producer_live() {
 }
 
 # ═══════════════════════════════════════════════════
-#  المخرج — Bitrate محسّن 6500k
+#  المخرج
 # ═══════════════════════════════════════════════════
 start_output() {
     echo "🔗 الاتصال بـ Restream..."
