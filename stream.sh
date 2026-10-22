@@ -258,7 +258,10 @@ if BOTTOM_TEXT.strip():
     glow_b = glow_b.filter(ImageFilter.GaussianBlur(10))
     banner = Image.alpha_composite(banner, glow_b)
     
+    # ✅ إصلاح الخطأ: إعادة تعريف أداة الرسم بعد دمج التوهج لضمان ظهور النص
+    bd = ImageDraw.Draw(banner) 
     bd.text((tx, ty), BOTTOM_TEXT, font=font_bottom, fill=(57, 255, 20, 255), direction="rtl")
+    
     banner.save(f"{WORKDIR}/bottom.png", "PNG")
 else:
     if os.path.exists(f"{WORKDIR}/bottom.png"):
@@ -279,7 +282,7 @@ mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 # ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار (بدون النص السفلي، سيتم إضافته في المخرج)
+#  منتج شاشة الانتظار (بدون النص السفلي)
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
@@ -325,7 +328,7 @@ start_producer_live() {
 }
 
 # ═══════════════════════════════════════════════════
-#  المخرج (مع دعم إضافة النص التكامي والتكبيس)
+#  المخرج (مع دعم إضافة النص التكامي)
 # ═══════════════════════════════════════════════════
 start_output() {
     local show_text="$1"
@@ -336,7 +339,7 @@ start_output() {
             -thread_queue_size 512 \
             -f mpegts -i "$FIFO" \
             -loop 1 -framerate $FPS -i "$WORKDIR/bottom.png" \
-            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-35:enable='lt(mod(t\,300)\,10)*lt(mod(t\,1)\,0.5)'[vout]" \
+            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-35:enable='lt(mod(t\,300)\,10)'[vout]" \
             -map "[vout]" -map 0:a:0? \
             -c:v libx264 -preset ultrafast -tune zerolatency \
             -pix_fmt yuv420p -g $GOP -r $FPS \
