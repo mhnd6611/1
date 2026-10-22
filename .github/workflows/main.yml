@@ -7,11 +7,16 @@ on:
         required: false
         default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7'
   schedule:
-    - cron: '0 */6 * * *' # احتياطي في حال توقف الرن
+    - cron: '0 */6 * * *'
 
 permissions:
   actions: write
   contents: read
+
+# ⚡ إضافة هذا القسم لمنع تراكم التشغيلات
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   broadcast:
