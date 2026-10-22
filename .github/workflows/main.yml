@@ -36,8 +36,13 @@ jobs:
         run: |
           set -e
           echo "═══ التثبيت ═══"
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig
+          
+          # 🚀 تسريع السيرفر: إجبار استخدام خوادم Ubuntu الرسمية بدلاً من خوادم Azure البطيئة
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+          
+          # وضع حد أقصى (5 دقائق) للتحميل لتجنب التعليق للأبد
+          timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: استغرق تحديث الحزم وقتاً طويلاً..."
+          timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: استغرق تثبيت الحزم وقتاً طويلاً..."
 
           echo "📦 Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
@@ -105,7 +110,7 @@ jobs:
             sleep 19800
             gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY' -f text_switch='$TSW'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo "✅"
+          echo "✅ تم جدولة الرن التالي مع خيارات النص: $TSW"
 
       - name: تشغيل البث
         env:
