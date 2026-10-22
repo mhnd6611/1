@@ -124,7 +124,7 @@ jobs:
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}
           TEXT_SWITCH: ${{ github.event.inputs.text_switch || '1' }}
-          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,xya7ya,klash'
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,moustache,birthdays,xya7ya,klash'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
