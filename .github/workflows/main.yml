@@ -37,14 +37,22 @@ jobs:
           set -e
           echo "═══ التثبيت ═══"
           
-          # 🚀 تسريع السيرفر: إجبار استخدام خوادم Ubuntu الرسمية بدلاً من خوادم Azure البطيئة
-          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+          # 🚀 الحل الجذري: مسح إعدادات Azure وكتابة مسار خوادم Ubuntu الرسمية مباشرة
+          sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
+          sudo bash -c 'cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
+          Types: deb
+          URIs: http://archive.ubuntu.com/ubuntu/
+          Suites: noble noble-updates noble-backports noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF'
           
-          # وضع حد أقصى (5 دقائق) للتحميل لتجنب التعليق للأبد
+          echo "⏳ تحديث الحزم وتثبيت ffmpeg..."
+          # وضع حد أقصى (5 دقائق) للتحميل لتجنب التعليق
           timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: استغرق تحديث الحزم وقتاً طويلاً..."
           timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: استغرق تثبيت الحزم وقتاً طويلاً..."
 
-          echo "📦 Pillow + Streamlink..."
+          echo "📦 تثبيت Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
 
           echo "🔤 تحميل الخطوط..."
@@ -116,7 +124,7 @@ jobs:
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}
           TEXT_SWITCH: ${{ github.event.inputs.text_switch || '1' }}
-          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,xya7ya,moustache,birthdays,klash'
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,xya7ya,klash'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
