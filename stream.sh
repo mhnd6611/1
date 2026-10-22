@@ -339,7 +339,7 @@ start_output() {
             -thread_queue_size 512 \
             -f mpegts -i "$FIFO" \
             -loop 1 -framerate $FPS -i "$WORKDIR/bottom.png" \
-            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-35:enable='lt(mod(t\,300)\,10)'[vout]" \
+            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-35[vout]" \
             -map "[vout]" -map 0:a:0? \
             -c:v libx264 -preset ultrafast -tune zerolatency \
             -pix_fmt yuv420p -g $GOP -r $FPS \
