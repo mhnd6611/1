@@ -13,7 +13,6 @@ LABEL_AR="قائمة الستريمرز:"
 
 # ⚠️ النص السفلي (الأخضر)
 BOTTOM_TEXT="بث دربحه الساعة 10 أو 11" 
-# مفتاح التشغيل: 1 = يظهر (عدا دربحه)، 2 = مخفي تماماً
 TEXT_SWITCH="${TEXT_SWITCH:-1}" 
 
 COLOR_TITLE="#d4b3ff"
@@ -74,7 +73,22 @@ echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  توليد الصور (Glassmorphism)
+#  دالة التنظيف (Graceful Shutdown) عند إلغاء الرن
+# ═══════════════════════════════════════════════════
+cleanup() {
+    echo "🛑 تم استلام أمر إيقاف — جاري إغلاق الاتصالات بهدوء..."
+    kill -TERM "$OUT" 2>/dev/null
+    kill -TERM "$PROD" 2>/dev/null
+    sleep 1
+    kill -9 "$OUT" 2>/dev/null
+    kill -9 "$PROD" 2>/dev/null
+    echo "✅ تم الإغلاق بنجاح."
+    exit 0
+}
+trap cleanup SIGTERM SIGINT
+
+# ═══════════════════════════════════════════════════
+#  توليد الصور
 # ═══════════════════════════════════════════════════
 cat > /tmp/make_respect.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -113,7 +127,6 @@ def load_font(path, size, weight=700):
     except Exception: pass
     return font
 
-# ═══ 1) الخلفية ═══
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -140,7 +153,6 @@ for y in range(-size, H + size, int(size * 0.866)):
 bg = Image.alpha_composite(bg, pattern)
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
-# ═══ 2) دالة رسم نص ═══
 def make_text_png(text, font, color, out, direction="rtl"):
     c = color.lstrip("#")
     r, g, b = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
@@ -168,7 +180,6 @@ font_sub = load_font(FONT_AR, FS_SUB, 700)
 make_text_png(TITLE, font_title, C_TITLE, f"{WORKDIR}/title.png", "rtl")
 make_text_png(SUBTITLE, font_sub, C_SUB, f"{WORKDIR}/sub.png", "rtl")
 
-# ═══ 3) بطاقات الستريمرز ═══
 items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
 font_list = load_font(FONT_EN, FS_LIST, 700)
 
@@ -210,7 +221,6 @@ for i, item in enumerate(items):
 
 grid_img.save(f"{WORKDIR}/grid.png", "PNG")
 
-# ═══ 4) تجميع المحتوى ═══
 content = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 title_img = Image.open(f"{WORKDIR}/title.png").convert("RGBA")
 sub_img = Image.open(f"{WORKDIR}/sub.png").convert("RGBA")
@@ -220,7 +230,6 @@ content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB))
 content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-# ═══ 5) الشعار ═══
 try:
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
     logo_data = urllib.request.urlopen(req, timeout=25).read()
@@ -232,7 +241,6 @@ except Exception as e:
     print(f"⚠️ logo fail: {e}")
     Image.new("RGBA", (LOGO_W, LOGO_W), (0,0,0,0)).save(f"{WORKDIR}/logo.png", "PNG")
 
-# ═══ 6) النص السفلي الأخضر ═══
 if BOTTOM_TEXT.strip():
     font_bottom = load_font(FONT_AR, 42, 900)
     tmp_b = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
@@ -274,16 +282,10 @@ echo "🎨 توليد صور الشاشة..."
 python3 /tmp/make_respect.py
 [ ! -s "$WORKDIR/bg.png" ] && { echo "❌ فشل التوليد"; exit 1; }
 
-# ═══════════════════════════════════════════════════
-#  FIFO
-# ═══════════════════════════════════════════════════
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
-# ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار
-# ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -306,9 +308,6 @@ start_producer_standby() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  منتج البث المباشر
-# ═══════════════════════════════════════════════════
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
@@ -327,18 +326,16 @@ start_producer_live() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  المخرج
-# ═══════════════════════════════════════════════════
 start_output() {
     local show_text="$1"
     echo "🔗 الاتصال بـ Restream... (Text: $show_text)"
     
     if [ "$show_text" = "1" ] && [ -s "$WORKDIR/bottom.png" ]; then
+        # تم تعديل معدل الإطارات للصورة إلى 1 لتخفيف الضغط ومنع الانهيار
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -thread_queue_size 512 \
             -f mpegts -i "$FIFO" \
-            -loop 1 -framerate $FPS -i "$WORKDIR/bottom.png" \
+            -loop 1 -framerate 1 -i "$WORKDIR/bottom.png" \
             -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=H-h-35[vout]" \
             -map "[vout]" -map 0:a:0? \
             -c:v libx264 -preset ultrafast -tune zerolatency \
@@ -373,14 +370,15 @@ start_output() {
 }
 
 kill_producer() {
-    [ -n "$PROD" ] && kill -9 "$PROD" 2>/dev/null
-    [ -n "$PROD" ] && wait "$PROD" 2>/dev/null
+    if [ -n "$PROD" ]; then
+        kill -TERM "$PROD" 2>/dev/null
+        sleep 1
+        kill -9 "$PROD" 2>/dev/null
+        wait "$PROD" 2>/dev/null
+    fi
     PROD=""
 }
 
-# ═══════════════════════════════════════════════════
-#  التشغيل
-# ═══════════════════════════════════════════════════
 echo "🚀 بدء التشغيل..."
 
 start_producer_standby
@@ -388,7 +386,6 @@ sleep 5
 kill -0 "$PROD" 2>/dev/null || { echo "❌ المنتج مات"; cat /tmp/prod.log; exit 1; }
 echo "✅ شاشة الانتظار شغالة (PID: $PROD)"
 
-# إلغاء الرنات القديمة
 if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
     echo "🔍 البحث عن الرنات القديمة لإلغائها..."
     OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
@@ -398,11 +395,11 @@ if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
         echo "🛑 إلغاء الرن القديم: $R"
         timeout 8 gh run cancel "$R" 2>/dev/null
     done
-    echo "⏳ انتظار 5 ثوانٍ لتحرير اتصال Restream..."
-    sleep 5
+    # تقليل وقت الانتظار إلى ثانيتين فقط
+    echo "⏳ انتظار ثانيتين لتحرير اتصال Restream..."
+    sleep 2
 fi
 
-# تحديد حالة النص الابتدائية بناءً على TEXT_SWITCH
 SHOW_TEXT=1
 if [ "$TEXT_SWITCH" = "2" ]; then
     SHOW_TEXT=0
@@ -437,11 +434,10 @@ while true; do
             else
                 start_producer_standby
                 MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
-                # تحديث حالة النص عند العودة للانتظار
                 NEW_SHOW_TEXT=1
                 if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
                 if [ "$SHOW_TEXT" != "$NEW_SHOW_TEXT" ]; then
-                    kill -9 "$OUT" 2>/dev/null; sleep 1
+                    kill -TERM "$OUT" 2>/dev/null; sleep 1; kill -9 "$OUT" 2>/dev/null
                     start_output "$NEW_SHOW_TEXT"; SHOW_TEXT="$NEW_SHOW_TEXT"
                 fi
             fi
@@ -451,7 +447,7 @@ while true; do
             NEW_SHOW_TEXT=1
             if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
             if [ "$SHOW_TEXT" != "$NEW_SHOW_TEXT" ]; then
-                kill -9 "$OUT" 2>/dev/null; sleep 1
+                kill -TERM "$OUT" 2>/dev/null; sleep 1; kill -9 "$OUT" 2>/dev/null
                 start_output "$NEW_SHOW_TEXT"; SHOW_TEXT="$NEW_SHOW_TEXT"
             fi
         fi
@@ -482,7 +478,6 @@ while true; do
             kill_producer
             sleep 1
             
-            # تحديد حالة النص للبث المباشر
             NEW_SHOW_TEXT=1
             if [ "$TEXT_SWITCH" = "2" ]; then
                 NEW_SHOW_TEXT=0
@@ -492,8 +487,9 @@ while true; do
             
             if [ "$NEW_SHOW_TEXT" != "$SHOW_TEXT" ]; then
                 echo "🔄 تغيير حالة النص — إعادة تشغيل المخرج..."
-                kill -9 "$OUT" 2>/dev/null
+                kill -TERM "$OUT" 2>/dev/null
                 sleep 1
+                kill -9 "$OUT" 2>/dev/null
                 start_output "$NEW_SHOW_TEXT"
                 SHOW_TEXT="$NEW_SHOW_TEXT"
             fi
@@ -514,14 +510,14 @@ while true; do
             kill_producer
             sleep 1
             
-            # تحديد حالة النص عند العودة للانتظار
             NEW_SHOW_TEXT=1
             if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
             
             if [ "$NEW_SHOW_TEXT" != "$SHOW_TEXT" ]; then
                 echo "🔄 تغيير حالة النص — إعادة تشغيل المخرج..."
-                kill -9 "$OUT" 2>/dev/null
+                kill -TERM "$OUT" 2>/dev/null
                 sleep 1
+                kill -9 "$OUT" 2>/dev/null
                 start_output "$NEW_SHOW_TEXT"
                 SHOW_TEXT="$NEW_SHOW_TEXT"
             fi
