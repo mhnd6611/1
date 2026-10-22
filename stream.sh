@@ -13,6 +13,8 @@ LABEL_AR="قائمة الستريمرز:"
 
 # ⚠️ النص السفلي (الأخضر)
 BOTTOM_TEXT="بث دربحه الساعة 10 أو 11" 
+# مفتاح التشغيل: 1 = يظهر (عدا دربحه)، 2 = مخفي تماماً
+TEXT_SWITCH="${TEXT_SWITCH:-1}" 
 
 COLOR_TITLE="#d4b3ff"
 COLOR_SUB="#ffffff"
@@ -32,7 +34,6 @@ Y_TITLE=160
 Y_SUB=280
 Y_GRID_START=390
 
-# قائمة الستريمرز المحدثة (20 يوزر)
 STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,xya7ya,klash}"
 
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
@@ -258,7 +259,6 @@ if BOTTOM_TEXT.strip():
     glow_b = glow_b.filter(ImageFilter.GaussianBlur(10))
     banner = Image.alpha_composite(banner, glow_b)
     
-    # ✅ إصلاح الخطأ: إعادة تعريف أداة الرسم بعد دمج التوهج لضمان ظهور النص
     bd = ImageDraw.Draw(banner) 
     bd.text((tx, ty), BOTTOM_TEXT, font=font_bottom, fill=(57, 255, 20, 255), direction="rtl")
     
@@ -282,7 +282,7 @@ mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 # ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار (بدون النص السفلي)
+#  منتج شاشة الانتظار
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
@@ -328,7 +328,7 @@ start_producer_live() {
 }
 
 # ═══════════════════════════════════════════════════
-#  المخرج (مع دعم إضافة النص التكامي)
+#  المخرج
 # ═══════════════════════════════════════════════════
 start_output() {
     local show_text="$1"
@@ -388,18 +388,28 @@ sleep 5
 kill -0 "$PROD" 2>/dev/null || { echo "❌ المنتج مات"; cat /tmp/prod.log; exit 1; }
 echo "✅ شاشة الانتظار شغالة (PID: $PROD)"
 
-SHOW_TEXT=1
-start_output "$SHOW_TEXT" || exit 1
-
-( if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
+# إلغاء الرنات القديمة
+if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
+    echo "🔍 البحث عن الرنات القديمة لإلغائها..."
     OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
           --json databaseId -q ".[].databaseId" 2>/dev/null | \
           awk -v m="$GITHUB_RUN_ID" '$1 < m')
     for R in $OLD; do
-        echo "🛑 إلغاء: $R"
+        echo "🛑 إلغاء الرن القديم: $R"
         timeout 8 gh run cancel "$R" 2>/dev/null
     done
-  fi ) >/tmp/cancel.log 2>&1 &
+    echo "⏳ انتظار 5 ثوانٍ لتحرير اتصال Restream..."
+    sleep 5
+fi
+
+# تحديد حالة النص الابتدائية بناءً على TEXT_SWITCH
+SHOW_TEXT=1
+if [ "$TEXT_SWITCH" = "2" ]; then
+    SHOW_TEXT=0
+    echo "🔕 تم إخفاء النص السفلي (بناءً على الإعداد TEXT_SWITCH=2)"
+fi
+
+start_output "$SHOW_TEXT" || exit 1
 
 MODE="STANDBY"
 ACTIVE=""
@@ -427,17 +437,22 @@ while true; do
             else
                 start_producer_standby
                 MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
-                if [ "$SHOW_TEXT" != "1" ]; then
+                # تحديث حالة النص عند العودة للانتظار
+                NEW_SHOW_TEXT=1
+                if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
+                if [ "$SHOW_TEXT" != "$NEW_SHOW_TEXT" ]; then
                     kill -9 "$OUT" 2>/dev/null; sleep 1
-                    start_output 1; SHOW_TEXT=1
+                    start_output "$NEW_SHOW_TEXT"; SHOW_TEXT="$NEW_SHOW_TEXT"
                 fi
             fi
         else
             start_producer_standby
             MODE="STANDBY"
-            if [ "$SHOW_TEXT" != "1" ]; then
+            NEW_SHOW_TEXT=1
+            if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
+            if [ "$SHOW_TEXT" != "$NEW_SHOW_TEXT" ]; then
                 kill -9 "$OUT" 2>/dev/null; sleep 1
-                start_output 1; SHOW_TEXT=1
+                start_output "$NEW_SHOW_TEXT"; SHOW_TEXT="$NEW_SHOW_TEXT"
             fi
         fi
         sleep 3
@@ -467,13 +482,14 @@ while true; do
             kill_producer
             sleep 1
             
-            # تحديد ما إذا كان النص يجب أن يظهر أم لا
+            # تحديد حالة النص للبث المباشر
             NEW_SHOW_TEXT=1
-            if [ "$(echo "$FOUND" | tr '[:upper:]' '[:lower:]')" = "drb7h" ]; then
+            if [ "$TEXT_SWITCH" = "2" ]; then
+                NEW_SHOW_TEXT=0
+            elif [ "$(echo "$FOUND" | tr '[:upper:]' '[:lower:]')" = "drb7h" ]; then
                 NEW_SHOW_TEXT=0
             fi
             
-            # إعادة تشغيل المخرج فقط إذا تغيرت حالة النص
             if [ "$NEW_SHOW_TEXT" != "$SHOW_TEXT" ]; then
                 echo "🔄 تغيير حالة النص — إعادة تشغيل المخرج..."
                 kill -9 "$OUT" 2>/dev/null
@@ -498,12 +514,16 @@ while true; do
             kill_producer
             sleep 1
             
-            if [ "$SHOW_TEXT" != "1" ]; then
-                echo "🔄 إعادة تشغيل المخرج مع النص..."
+            # تحديد حالة النص عند العودة للانتظار
+            NEW_SHOW_TEXT=1
+            if [ "$TEXT_SWITCH" = "2" ]; then NEW_SHOW_TEXT=0; fi
+            
+            if [ "$NEW_SHOW_TEXT" != "$SHOW_TEXT" ]; then
+                echo "🔄 تغيير حالة النص — إعادة تشغيل المخرج..."
                 kill -9 "$OUT" 2>/dev/null
                 sleep 1
-                start_output 1
-                SHOW_TEXT=1
+                start_output "$NEW_SHOW_TEXT"
+                SHOW_TEXT="$NEW_SHOW_TEXT"
             fi
 
             start_producer_standby
