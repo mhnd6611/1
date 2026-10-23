@@ -22,46 +22,23 @@ jobs:
       - name: جلب الملفات
         uses: actions/checkout@v3
 
+      - name: تثبيت ffmpeg (بنسخة ثابتة ومتوافقة)
+        uses: AnimMouse/setup-ffmpeg@v1
+        with:
+          version: 7.1
+
       - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-pillow-respect-v1
 
-      - name: تثبيت الأدوات
+      - name: تثبيت الأدوات والخطوط
         run: |
           set -e
           echo "═══ التثبيت ═══"
+          # لم نعد بحاجة لتثبيت ffmpeg عبر apt أو snap
           
-          # 🚀 السر هنا: سيرفرات GitHub لديها ffmpeg مثبت مسبقاً!
-          if command -v ffmpeg >/dev/null 2>&1; then
-            echo "✅ ffmpeg مثبت مسبقاً في السيرفر. تم تخطي التحميل البطيء!"
-          else
-            echo "⏳ ffmpeg غير موجود. جاري التثبيت الاحتياطي..."
-            sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
-            sudo bash -c 'cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
-          Types: deb
-          URIs: http://archive.ubuntu.com/ubuntu/
-          Suites: noble noble-updates noble-backports noble-security
-          Components: main restricted universe multiverse
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF'
-            timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: تعليق في التحديث..."
-            
-            # 🛠️ إصلاح الحزم المكسورة (المشكلة الأساسية)
-            echo "🔧 محاولة إصلاح الحزم المكسورة..."
-            sudo apt-get --fix-broken install -y || true
-            
-            # محاولة التثبيت العادية
-            echo "📥 محاولة تثبيت ffmpeg..."
-            if timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig; then
-                echo "✅ تم تثبيت ffmpeg بنجاح"
-            else
-                echo "⚠️ فشل التثبيت العادي. جاري تجربة snap كخطة بديلة..."
-                sudo snap install ffmpeg || true
-            fi
-          fi
-
           echo "📦 تثبيت Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
 
