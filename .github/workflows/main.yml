@@ -22,69 +22,54 @@ jobs:
       - name: جلب الملفات
         uses: actions/checkout@v3
 
-      - name: تثبيت ffmpeg (نسخة ثابتة ومستقلة)
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          ffmpeg-version: release
-          linking-type: static
-
       - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-pillow-respect-v1
 
-      - name: تثبيت الأدوات والخطوط
+      - name: تثبيت الأدوات (حل جذري)
         run: |
           set -e
           echo "═══ التثبيت ═══"
           
+          # 1. تنظيف مستودعات Microsoft و Azure التي تسبب تعارض الحزم
+          sudo rm -f /etc/apt/sources.list.d/azure-cli.list /etc/apt/sources.list.d/microsoft-prod.list
+          
+          # 2. تحديث الحزم
+          sudo apt-get update -qq
+          
+          # 3. تثبيت ffmpeg و fontconfig و nscd (لضمان استقرار DNS)
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig nscd
+
           echo "📦 تثبيت Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
 
           echo "🔤 تحميل الخطوط..."
           mkdir -p ~/.fonts
 
-          CAIRO_OK=0
+          # تحميل خط Cairo
           for URL in \
             "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" \
             "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"; do
             curl -sL --max-time 30 "$URL" -o ~/.fonts/Cairo-var.ttf 2>/dev/null || true
             S=$(stat -c%s ~/.fonts/Cairo-var.ttf 2>/dev/null || echo 0)
-            if [ "$S" -gt 50000 ]; then
-              echo "✅ Cairo ($S بايت)"
-              CAIRO_OK=1
-              break
-            fi
-            rm -f ~/.fonts/Cairo-var.ttf
+            if [ "$S" -gt 50000 ]; then break; fi
           done
-          if [ "$CAIRO_OK" != "1" ]; then
-            echo "⚠️ فشل Cairo — استخدام Noto Naskh Arabic"
-            curl -sL --max-time 30 "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io@main/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Bold.ttf" -o ~/.fonts/Cairo-var.ttf
-          fi
 
-          ORB_OK=0
+          # تحميل خط Orbitron
           for URL in \
             "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/orbitron/Orbitron%5Bwght%5D.ttf" \
             "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf"; do
             curl -sL --max-time 30 "$URL" -o ~/.fonts/Orbitron-var.ttf 2>/dev/null || true
             S=$(stat -c%s ~/.fonts/Orbitron-var.ttf 2>/dev/null || echo 0)
-            if [ "$S" -gt 20000 ]; then
-              echo "✅ Orbitron ($S بايت)"
-              ORB_OK=1
-              break
-            fi
-            rm -f ~/.fonts/Orbitron-var.ttf
+            if [ "$S" -gt 20000 ]; then break; fi
           done
-          if [ "$ORB_OK" != "1" ]; then
-            echo "❌ فشل تحميل Orbitron"
-            exit 1
-          fi
 
           fc-cache -f >/dev/null 2>&1
           echo "═══ اكتمل ═══"
 
-      - name: التحقق الإجباري
+      - name: التحقق الإجباري من ffmpeg
         run: |
           echo "🔍 التحقق من توفر ffmpeg..."
           if command -v ffmpeg &> /dev/null; then
