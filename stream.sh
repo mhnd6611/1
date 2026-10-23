@@ -69,7 +69,7 @@ echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  دالة التنظيف (Graceful Shutdown) عند إلغاء الرن
+#  دالة التنظيف (Graceful Shutdown)
 # ═══════════════════════════════════════════════════
 cleanup() {
     echo "🛑 تم استلام أمر إيقاف — جاري إغلاق الاتصالات بهدوء..."
@@ -84,11 +84,11 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # ═══════════════════════════════════════════════════
-#  توليد الصور (Glassmorphism)
+#  توليد الصور
 # ═══════════════════════════════════════════════════
 cat > /tmp/make_respect.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
-import urllib.request, io, os, math
+import urllib.request, io, os
 
 W, H = 1920, 1080
 WORKDIR = "$WORKDIR"
@@ -122,7 +122,7 @@ def load_font(path, size, weight=700):
     except Exception: pass
     return font
 
-# ═══ 1) الخلفية ═══
+# الخلفية
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -149,7 +149,7 @@ for y in range(-size, H + size, int(size * 0.866)):
 bg = Image.alpha_composite(bg, pattern)
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
-# ═══ 2) دالة رسم نص ═══
+# دالة رسم النص
 def make_text_png(text, font, color, out, direction="rtl"):
     c = color.lstrip("#")
     r, g, b = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
@@ -177,10 +177,9 @@ font_sub = load_font(FONT_AR, FS_SUB, 700)
 make_text_png(TITLE, font_title, C_TITLE, f"{WORKDIR}/title.png", "rtl")
 make_text_png(SUBTITLE, font_sub, C_SUB, f"{WORKDIR}/sub.png", "rtl")
 
-# ═══ 3) بطاقات الستريمرز ═══
+# بطاقات الستريمرز
 items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
 font_list = load_font(FONT_EN, FS_LIST, 700)
-
 COLS = 4
 ROWS = (len(items) + COLS - 1) // COLS
 CARD_W = 320
@@ -189,7 +188,6 @@ GAP_X = 35
 GAP_Y = 30
 GRID_W = COLS * CARD_W + (COLS - 1) * GAP_X
 GRID_H = ROWS * CARD_H + (ROWS - 1) * GAP_Y
-
 grid_img = Image.new("RGBA", (GRID_W, GRID_H), (0, 0, 0, 0))
 
 for i, item in enumerate(items):
@@ -197,39 +195,32 @@ for i, item in enumerate(items):
     col = i % COLS
     x = col * (CARD_W + GAP_X)
     y = row * (CARD_H + GAP_Y)
-    
     card = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
     cd = ImageDraw.Draw(card)
     cd.rounded_rectangle([(0,0), (CARD_W, CARD_H)], radius=15, fill=(255, 255, 255, 15), outline=(166, 77, 255, 120), width=2)
     cd.rounded_rectangle([(2,2), (CARD_W-2, CARD_H-2)], radius=13, outline=(255, 255, 255, 40), width=1)
-    
     bbox = cd.textbbox((0, 0), item.upper(), font=font_list)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     tx = (CARD_W - tw) // 2 - bbox[0]
     ty = (CARD_H - th) // 2 - bbox[1]
-    
     cd.text((tx, ty), item.upper(), font=font_list, fill=C_CARD_TEXT)
-    
     glow_txt = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
     ImageDraw.Draw(glow_txt).text((tx, ty), item.upper(), font=font_list, fill=(255, 255, 255, 150))
     glow_txt = glow_txt.filter(ImageFilter.GaussianBlur(8))
-    
     card = Image.alpha_composite(card, glow_txt)
     grid_img.alpha_composite(card, (x, y))
 
 grid_img.save(f"{WORKDIR}/grid.png", "PNG")
 
-# ═══ 4) تجميع المحتوى ═══
 content = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 title_img = Image.open(f"{WORKDIR}/title.png").convert("RGBA")
 sub_img = Image.open(f"{WORKDIR}/sub.png").convert("RGBA")
-
 content.alpha_composite(title_img, ((W - title_img.width)//2, Y_TITLE))
 content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB))
 content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-# ═══ 5) الشعار ═══
+# الشعار
 try:
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
     logo_data = urllib.request.urlopen(req, timeout=25).read()
@@ -248,16 +239,12 @@ echo "🎨 توليد صور الشاشة..."
 python3 /tmp/make_respect.py
 [ ! -s "$WORKDIR/bg.png" ] && { echo "❌ فشل التوليد"; exit 1; }
 
-# ═══════════════════════════════════════════════════
-#  FIFO
-# ═══════════════════════════════════════════════════
+# FIFO
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
-# ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار
-# ═══════════════════════════════════════════════════
+# منتج شاشة الانتظار
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -280,9 +267,7 @@ start_producer_standby() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  منتج البث المباشر
-# ═══════════════════════════════════════════════════
+# منتج البث المباشر
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
@@ -301,9 +286,7 @@ start_producer_live() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  المخرج
-# ═══════════════════════════════════════════════════
+# المخرج
 start_output() {
     echo "🔗 الاتصال بـ Restream..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -316,6 +299,7 @@ start_output() {
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
+        -rw_timeout 15000000 \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
     sleep 6
@@ -337,9 +321,7 @@ kill_producer() {
     PROD=""
 }
 
-# ═══════════════════════════════════════════════════
-#  التشغيل
-# ═══════════════════════════════════════════════════
+# التشغيل
 echo "🚀 بدء التشغيل..."
 
 start_producer_standby
@@ -347,7 +329,6 @@ sleep 5
 kill -0 "$PROD" 2>/dev/null || { echo "❌ المنتج مات"; cat /tmp/prod.log; exit 1; }
 echo "✅ شاشة الانتظار شغالة (PID: $PROD)"
 
-# إلغاء الرنات القديمة
 if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
     echo "🔍 البحث عن الرنات القديمة لإلغائها..."
     OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
