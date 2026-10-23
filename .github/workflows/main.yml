@@ -33,7 +33,7 @@ jobs:
           set -e
           echo "═══ التثبيت ═══"
           
-          # 🚀 الحل الجذري: مسح إعدادات Azure وكتابة مسار خوادم Ubuntu الرسمية مباشرة
+          # إصلاح: التأكد من وجود universe في المصادر لتثبيت ffmpeg
           sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
           sudo bash -c 'cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
           Types: deb
@@ -45,6 +45,8 @@ jobs:
           
           echo "⏳ تحديث الحزم وتثبيت ffmpeg..."
           timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: استغرق تحديث الحزم وقتاً طويلاً..."
+          
+          # إصلاح: التثبيت الإجباري لـ ffmpeg و fontconfig
           timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: استغرق تثبيت الحزم وقتاً طويلاً..."
 
           echo "📦 تثبيت Pillow + Streamlink..."
@@ -92,13 +94,16 @@ jobs:
           fc-cache -f >/dev/null 2>&1
           echo "═══ اكتمل ═══"
 
-      - name: التحقق
+      - name: التحقق الإجباري من ffmpeg
         run: |
-          echo "ffmpeg: $(which ffmpeg || echo مفقود)"
-          echo "PIL: $(python3 -c 'import PIL; print(PIL.__version__)' 2>&1)"
-          echo "Cairo: $(ls -la ~/.fonts/Cairo-var.ttf 2>/dev/null | awk '{print $5}') بايت"
-          echo "Orbitron: $(ls -la ~/.fonts/Orbitron-var.ttf 2>/dev/null | awk '{print $5}') بايت"
-          echo "streamlink: $($HOME/.local/bin/streamlink --version 2>&1)"
+          echo "🔍 التحقق من توفر ffmpeg..."
+          if command -v ffmpeg &> /dev/null; then
+              echo "✅ ffmpeg موجود: $(which ffmpeg)"
+              ffmpeg -version | head -n 1
+          else
+              echo "❌ خطأ فادح: ffmpeg غير موجود! ستفشل عملية البث."
+              exit 1
+          fi
 
       - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
