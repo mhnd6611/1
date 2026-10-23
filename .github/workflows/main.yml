@@ -33,21 +33,22 @@ jobs:
           set -e
           echo "═══ التثبيت ═══"
           
-          # إصلاح: التأكد من وجود universe في المصادر لتثبيت ffmpeg
-          sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
-          sudo bash -c 'cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
+          # 🚀 السر هنا: سيرفرات GitHub لديها ffmpeg مثبت مسبقاً!
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo "✅ ffmpeg مثبت مسبقاً في السيرفر. تم تخطي التحميل البطيء!"
+          else
+            echo "⏳ ffmpeg غير موجود. جاري التثبيت الاحتياطي..."
+            sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
+            sudo bash -c 'cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
           Types: deb
           URIs: http://archive.ubuntu.com/ubuntu/
           Suites: noble noble-updates noble-backports noble-security
           Components: main restricted universe multiverse
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF'
-          
-          echo "⏳ تحديث الحزم وتثبيت ffmpeg..."
-          timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: استغرق تحديث الحزم وقتاً طويلاً..."
-          
-          # إصلاح: التثبيت الإجباري لـ ffmpeg و fontconfig
-          timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: استغرق تثبيت الحزم وقتاً طويلاً..."
+            timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: تعليق في التحديث..."
+            timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: تعليق في التثبيت..."
+          fi
 
           echo "📦 تثبيت Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
@@ -94,14 +95,14 @@ jobs:
           fc-cache -f >/dev/null 2>&1
           echo "═══ اكتمل ═══"
 
-      - name: التحقق الإجباري من ffmpeg
+      - name: التحقق الإجباري
         run: |
           echo "🔍 التحقق من توفر ffmpeg..."
           if command -v ffmpeg &> /dev/null; then
               echo "✅ ffmpeg موجود: $(which ffmpeg)"
               ffmpeg -version | head -n 1
           else
-              echo "❌ خطأ فادح: ffmpeg غير موجود! ستفشل عملية البث."
+              echo "❌ خطأ فادح: ffmpeg غير موجود!"
               exit 1
           fi
 
