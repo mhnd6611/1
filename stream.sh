@@ -12,8 +12,8 @@ SUBTITLE_AR="جاري انتظار ستريمرز ريسبكت المذكوري�
 LABEL_AR="قائمة الستريمرز:"
 
 # ⚠️ النص السفلي (الأخضر)
-BOTTOM_TEXT="بث دربحه الساعة 10 أو 11" 
-TEXT_SWITCH="${TEXT_SWITCH:-2}" 
+BOTTOM_TEXT="" 
+TEXT_SWITCH="${TEXT_SWITCH:-1}" 
 
 COLOR_TITLE="#d4b3ff"
 COLOR_SUB="#ffffff"
