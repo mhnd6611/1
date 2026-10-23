@@ -22,10 +22,11 @@ jobs:
       - name: جلب الملفات
         uses: actions/checkout@v3
 
-      - name: تثبيت ffmpeg (بنسخة ثابتة ومتوافقة)
-        uses: AnimMouse/setup-ffmpeg@v1
+      - name: تثبيت ffmpeg (نسخة ثابتة ومستقلة)
+        uses: FedericoCarboni/setup-ffmpeg@v3
         with:
-          version: 7.1
+          ffmpeg-version: release
+          linking-type: static
 
       - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
@@ -37,7 +38,6 @@ jobs:
         run: |
           set -e
           echo "═══ التثبيت ═══"
-          # لم نعد بحاجة لتثبيت ffmpeg عبر apt أو snap
           
           echo "📦 تثبيت Pillow + Streamlink..."
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
