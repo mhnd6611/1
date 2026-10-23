@@ -47,7 +47,19 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF'
             timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: تعليق في التحديث..."
-            timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: تعليق في التثبيت..."
+            
+            # 🛠️ إصلاح الحزم المكسورة (المشكلة الأساسية)
+            echo "🔧 محاولة إصلاح الحزم المكسورة..."
+            sudo apt-get --fix-broken install -y || true
+            
+            # محاولة التثبيت العادية
+            echo "📥 محاولة تثبيت ffmpeg..."
+            if timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig; then
+                echo "✅ تم تثبيت ffmpeg بنجاح"
+            else
+                echo "⚠️ فشل التثبيت العادي. جاري تجربة snap كخطة بديلة..."
+                sudo snap install ffmpeg || true
+            fi
           fi
 
           echo "📦 تثبيت Pillow + Streamlink..."
