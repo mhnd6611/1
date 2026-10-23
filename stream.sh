@@ -2,8 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Kick → Restream
-#  Luxury Glassmorphism UI + Floating Animations
+#  Respect Broadcast — Kick → Restream (Zero Downtime)
 # ═══════════════════════════════════════════════════
 
 # ─── الإعدادات ───
@@ -122,7 +121,6 @@ def load_font(path, size, weight=700):
     except Exception: pass
     return font
 
-# الخلفية
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -149,7 +147,6 @@ for y in range(-size, H + size, int(size * 0.866)):
 bg = Image.alpha_composite(bg, pattern)
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
-# دالة رسم النص
 def make_text_png(text, font, color, out, direction="rtl"):
     c = color.lstrip("#")
     r, g, b = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
@@ -177,7 +174,6 @@ font_sub = load_font(FONT_AR, FS_SUB, 700)
 make_text_png(TITLE, font_title, C_TITLE, f"{WORKDIR}/title.png", "rtl")
 make_text_png(SUBTITLE, font_sub, C_SUB, f"{WORKDIR}/sub.png", "rtl")
 
-# بطاقات الستريمرز
 items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
 font_list = load_font(FONT_EN, FS_LIST, 700)
 COLS = 4
@@ -220,7 +216,6 @@ content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB))
 content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-# الشعار
 try:
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
     logo_data = urllib.request.urlopen(req, timeout=25).read()
@@ -239,12 +234,16 @@ echo "🎨 توليد صور الشاشة..."
 python3 /tmp/make_respect.py
 [ ! -s "$WORKDIR/bg.png" ] && { echo "❌ فشل التوليد"; exit 1; }
 
-# FIFO
+# ═══════════════════════════════════════════════════
+#  FIFO
+# ═══════════════════════════════════════════════════
 rm -f "$FIFO"
 mkfifo "$FIFO"
-exec 3<>"$FIFO"
+exec 3<>"$FIFO" # إبقاء الـ FIFO مفتوحاً لمنع توقف OUT عند توقف PROD
 
-# منتج شاشة الانتظار
+# ═══════════════════════════════════════════════════
+#  منتج شاشة الانتظار
+# ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة المتحركة..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -267,7 +266,9 @@ start_producer_standby() {
     PROD=$!
 }
 
-# منتج البث المباشر
+# ═══════════════════════════════════════════════════
+#  منتج البث المباشر (مع مهلة 10 ثوانٍ للانقطاع)
+# ═══════════════════════════════════════════════════
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
@@ -276,6 +277,7 @@ start_producer_live() {
         -headers "User-Agent: $UA" \
         -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
         -reconnect_delay_max 5 \
+        -rw_timeout 10000000 \
         -analyzeduration 1000000 -probesize 1000000 \
         -fflags +genpts+igndts \
         -i "$M3U8" \
@@ -286,7 +288,9 @@ start_producer_live() {
     PROD=$!
 }
 
-# المخرج
+# ═══════════════════════════════════════════════════
+#  المخرج (مع مؤقت 5 ثوانٍ لإنهاء الاتصال الميت)
+# ═══════════════════════════════════════════════════
 start_output() {
     echo "🔗 الاتصال بـ Restream..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
@@ -299,7 +303,7 @@ start_output() {
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
-        -rw_timeout 15000000 \
+        -rw_timeout 5000000 \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
     sleep 6
@@ -321,7 +325,9 @@ kill_producer() {
     PROD=""
 }
 
-# التشغيل
+# ═══════════════════════════════════════════════════
+#  التشغيل
+# ═══════════════════════════════════════════════════
 echo "🚀 بدء التشغيل..."
 
 start_producer_standby
@@ -350,6 +356,7 @@ ACTIVE_IDX=-1
 TICK=0
 
 while true; do
+    # مراقبة المخرج (OUT): إذا تجمد، سيقتله rw_timeout ويعيده السكربت
     if ! kill -0 "$OUT" 2>/dev/null; then
         echo "⚠️ المخرج مات — إعادة..."
         kill_producer
@@ -359,6 +366,7 @@ while true; do
         continue
     fi
 
+    # مراقبة المنتج (PROD): إذا مات فجأة، شغل شاشة الانتظار فوراً
     if ! kill -0 "$PROD" 2>/dev/null; then
         echo "⚠️ المنتج مات — إعادة..."
         if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
@@ -385,7 +393,16 @@ while true; do
         LIMIT=$((ACTIVE_IDX + 1))
     fi
 
+    # الفحص السريع
     for ((i=0; i<LIMIT; i++)); do
+        # ⚡ فحص طارئ: إذا مات المنتج أثناء البحث، حول لشاشة الانتظار فوراً
+        if ! kill -0 "$PROD" 2>/dev/null; then
+            echo "⚠️ انقطع البث أثناء البحث — تشغيل شاشة الانتظار..."
+            start_producer_standby
+            MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
+            break
+        fi
+
         S=$(echo "${STREAMERS[$i]}" | xargs)
         [ -z "$S" ] && continue
         URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
