@@ -6,10 +6,6 @@ on:
       restream_key:
         required: false
         default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7'
-      text_switch:
-        description: 'النص السفلي: اكتب 1 لإظهاره (عدا DRB7H)، أو 2 لإخفائه تماماً'
-        required: false
-        default: '1'
   schedule:
     - cron: '0 */6 * * *'
 
@@ -48,7 +44,6 @@ jobs:
           EOF'
           
           echo "⏳ تحديث الحزم وتثبيت ffmpeg..."
-          # وضع حد أقصى (5 دقائق) للتحميل لتجنب التعليق
           timeout 300 sudo apt-get update -qq || echo "⚠️ تحذير: استغرق تحديث الحزم وقتاً طويلاً..."
           timeout 300 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg fontconfig || echo "⚠️ تحذير: استغرق تثبيت الحزم وقتاً طويلاً..."
 
@@ -113,18 +108,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RKEY="${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}"
-          TSW="${{ github.event.inputs.text_switch || '1' }}"
           setsid nohup bash -c "
             sleep 19800
-            gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY' -f text_switch='$TSW'
+            gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo "✅ تم جدولة الرن التالي مع خيارات النص: $TSW"
+          echo "✅ تم جدولة الرن التالي"
 
       - name: تشغيل البث
         env:
           RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}
-          TEXT_SWITCH: ${{ github.event.inputs.text_switch || '1' }}
-          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,moustache,birthdays,xya7ya,klash'
+          STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,xya7ya,klash'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
