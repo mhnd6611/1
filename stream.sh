@@ -7,7 +7,7 @@ set +m
 
 # ─── الإعدادات ───
 TITLE_AR="RESPECT"
-SUBTITLE_AR=" ننتضر احد يبث..."
+SUBTITLE_AR="جاري انتظار ستريمرز ريسبكت ..."
 LABEL_AR="ACTIVE ROSTER"
 
 COLOR_TITLE="#d4b3ff"
@@ -114,11 +114,14 @@ for y in range(H):
 bg = bg.convert("RGBA")
 
 # خطوط الشبكة
-grid = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-gd = ImageDraw.Draw(grid)
+grid_bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+gd = ImageDraw.Draw(grid_bg)
 for x in range(0, W, 80): gd.line([(x, 0), (x, H)], fill=(166, 77, 255, 20), width=1)
 for y in range(0, H, 80): gd.line([(0, y), (W, y)], fill=(166, 77, 255, 20), width=1)
-bg = Image.alpha_composite(bg, grid)
+bg = Image.alpha_composite(bg, grid_bg)
+
+# ✅ إصلاح الخطأ: حفظ صورة الخلفية
+bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
 # 2) نص العنوان (RESPECT)
 font_title = load_font(FONT_EN, FS_TITLE, 900)
@@ -235,9 +238,6 @@ trap cleanup SIGTERM SIGINT
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة (Cyberpunk Mode)..."
-    # تأثير ماسح ضوئي (Scanner) يمر على الشاشة
-    # تأثير طفو للمحتوى
-    # تأثير نبض للشعار
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -loop 1 -framerate $FPS -i "$WORKDIR/bg.png" \
         -loop 1 -framerate $FPS -i "$WORKDIR/content.png" \
