@@ -294,7 +294,7 @@ start_output() {
         -map 0:v:0 -map 0:a:0? \
         -c:v libx264 -preset ultrafast -tune zerolatency \
         -pix_fmt yuv420p -g $GOP -r $FPS \
-        -b:v 6500k -maxrate 7000k -bufsize 14000k \
+        -b:v 6000k -maxrate 6500k -bufsize 14000k \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
