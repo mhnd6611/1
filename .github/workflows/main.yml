@@ -5,7 +5,7 @@ on:
     inputs:
       restream_key:
         required: false
-        default: 're_12552561_event81737fba9ada4713ab13ad7e04a36880' # ضع مفتاحك هنا
+        default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' # ضع مفتاحك هنا
   schedule:
     - cron: '0 */6 * * *'
 
