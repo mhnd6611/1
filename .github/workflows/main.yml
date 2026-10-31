@@ -5,7 +5,7 @@ on:
     inputs:
       restream_key:
         required: false
-        default: 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7'
+        default: 're_12552561_event81737fba9ada4713ab13ad7e04a36880' # ضع مفتاحك هنا
   schedule:
     - cron: '0 */6 * * *'
 
@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: جلب الملفات
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: تخزين مؤقت للـ pip
         uses: actions/cache@v4
@@ -64,7 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RKEY="${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}"
+          RKEY="${{ github.event.inputs.restream_key || 're_12552561_event81737fba9ada4713ab13ad7e04a36880' }}"
           setsid nohup bash -c "
             sleep 19800
             gh workflow run main.yml --ref '${{ github.ref_name }}' -f restream_key='$RKEY'
@@ -73,8 +73,8 @@ jobs:
 
       - name: تشغيل البث
         env:
-          RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12543719_event7def31c9d2d74d1eba5a0bee1a95cde7' }}
-          # القائمة الجديدة (26 ستريمر)
+          RESTREAM_KEY: ${{ github.event.inputs.restream_key || 're_12552561_event81737fba9ada4713ab13ad7e04a36880' }}
+          # القائمة المحدثة (28 ستريمر)
           STREAMERS_LIST: 'drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,NEFOXD,RAYN,xya7ya,W1pey,AL_Hashidi,moustache,ALRND,klash,OGxHusni,Sayko_911,ZAiKRx'
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
