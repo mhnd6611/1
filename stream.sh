@@ -2,14 +2,11 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Kick → Restream (Cyberpunk Tech UI + Live Overlay)
+#  Respect Broadcast — 24/7 Zero-Downtime (1080p Fixed)
 # ═══════════════════════════════════════════════════
 
-# ─── الإعدادات ───
 TITLE_AR="RESPECT"
 SUBTITLE_AR="جاري انتظار انضمام الستريمرز..."
-LABEL_AR="ACTIVE ROSTER"
-
 COLOR_TITLE="#d4b3ff"
 COLOR_SUB="#a64dff"
 COLOR_NEON="#a64dff"
@@ -21,12 +18,10 @@ BG_BOT_R=15; BG_BOT_G=5; BG_BOT_B=30
 FONT_SIZE_TITLE=130
 FONT_SIZE_SUB=40
 FONT_SIZE_LIST=22
-
 Y_TITLE=200
 Y_SUB=340
 Y_GRID_START=430
 
-# القائمة الجديدة (26 ستريمر)
 STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,NEFOXD,RAYN,xya7ya,W1pey,ALRND,klash,Sayko_911,ZAiKRx}"
 
 LOGO_URL="https://i.top4top.io/p_39264fv5g0.png"
@@ -35,39 +30,31 @@ Y_LOGO=40
 
 FPS=60
 GOP=120
-
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-# ═══════════════════════════════════════════════════
 
 RESTREAM_KEY="${RESTREAM_KEY:-}"
 [ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح Restream فارغ"; exit 1; }
-[ -z "$STREAMERS_LIST" ] && { echo "❌ قائمة الستريمرز فارغة"; exit 1; }
 
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
 WORKDIR="/tmp/respect_cyber_ui"
 
-# ─── الخطوط ───
 FONT_AR=""
 for C in "$HOME/.fonts/Cairo-var.ttf" "$HOME/.fonts/NotoSansArabic-Bold.ttf"; do
     [ -s "$C" ] && { FONT_AR="$C"; break; }
 done
-[ -z "$FONT_AR" ] && { echo "❌ لا يوجد خط عربي"; exit 1; }
-
 FONT_EN="$HOME/.fonts/Orbitron-var.ttf"
-[ ! -s "$FONT_EN" ] && { echo "❌ لا يوجد Orbitron"; exit 1; }
 
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
-
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  توليد الصور (Cyberpunk Style + Live Overlays)
+#  توليد الصور
 # ═══════════════════════════════════════════════════
 cat > /tmp/make_respect.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
-import urllib.request, io, os
+import urllib.request, io
 
 W, H = 1920, 1080
 WORKDIR = "$WORKDIR"
@@ -79,17 +66,6 @@ C_TITLE = "$COLOR_TITLE"
 C_SUB = "$COLOR_SUB"
 C_NEON = "$COLOR_NEON"
 C_TEXT = "$COLOR_TEXT"
-FS_TITLE = $FONT_SIZE_TITLE
-FS_SUB = $FONT_SIZE_SUB
-FS_LIST = $FONT_SIZE_LIST
-Y_TITLE = $Y_TITLE
-Y_SUB = $Y_SUB
-Y_GRID_START = $Y_GRID_START
-BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
-BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
-LOGO_URL = "$LOGO_URL"
-LOGO_W = $LOGO_W
-STREAMERS_STR = "$STREAMERS_LIST"
 
 def load_font(path, size, weight=700):
     font = ImageFont.truetype(path, size)
@@ -101,7 +77,7 @@ def load_font(path, size, weight=700):
     except Exception: pass
     return font
 
-# 1) الخلفية (شبكة تكنولوجية)
+# 1. الخلفية
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -119,12 +95,11 @@ for y in range(0, H, 80): gd.line([(0, y), (W, y)], fill=(166, 77, 255, 20), wid
 bg = Image.alpha_composite(bg, grid_bg)
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
-# 2) نص العنوان (RESPECT)
-font_title = load_font(FONT_EN, FS_TITLE, 900)
+# 2. العنوان
+font_title = load_font(FONT_EN, 130, 900)
 tmp_t = Image.new("RGBA", (10, 10), (0,0,0,0))
 bbox_t = ImageDraw.Draw(tmp_t).textbbox((0,0), TITLE, font=font_title)
 tw, th = bbox_t[2]-bbox_t[0], bbox_t[3]-bbox_t[1]
-
 title_img = Image.new("RGBA", (tw + 100, th + 100), (0,0,0,0))
 td = ImageDraw.Draw(title_img)
 td.text(((title_img.width - tw)//2, (title_img.height - th)//2), TITLE, font=font_title, fill=(212, 179, 255, 255))
@@ -132,8 +107,8 @@ glow = title_img.filter(ImageFilter.GaussianBlur(20))
 title_img = Image.alpha_composite(glow, title_img)
 title_img.save(f"{WORKDIR}/title.png", "PNG")
 
-# 3) النص الفرعي
-font_sub = load_font(FONT_AR, FS_SUB, 700)
+# 3. النص الفرعي
+font_sub = load_font(FONT_AR, 40, 700)
 sub_img = Image.new("RGBA", (1000, 100), (0,0,0,0))
 sd = ImageDraw.Draw(sub_img)
 bbox_s = sd.textbbox((0,0), SUBTITLE, font=font_sub, direction="rtl")
@@ -141,124 +116,74 @@ sw = bbox_s[2] - bbox_s[0]
 sd.text(((sub_img.width - sw)//2, 20), SUBTITLE, font=font_sub, fill=C_SUB, direction="rtl")
 sub_img.save(f"{WORKDIR}/sub.png", "PNG")
 
-# 4) قائمة الستريمرز
-items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
-font_list = load_font(FONT_EN, FS_LIST, 700)
-
+# 4. القائمة
+items = [s.strip() for s in "$STREAMERS_LIST".split(',') if s.strip()]
+font_list = load_font(FONT_EN, 22, 700)
 COLS = 6
 ROWS = (len(items) + COLS - 1) // COLS
-CARD_W = 260
-CARD_H = 60
-GAP_X = 20
-GAP_Y = 25
+CARD_W, CARD_H, GAP_X, GAP_Y = 260, 60, 20, 25
 GRID_W = COLS * CARD_W + (COLS - 1) * GAP_X
 GRID_H = ROWS * CARD_H + (ROWS - 1) * GAP_Y
-
 grid_img = Image.new("RGBA", (GRID_W, GRID_H), (0,0,0,0))
 
 for i, item in enumerate(items):
-    row = i // COLS
-    col = i % COLS
-    x = col * (CARD_W + GAP_X)
-    y = row * (CARD_H + GAP_Y)
-    
+    row, col = i // COLS, i % COLS
+    x, y = col * (CARD_W + GAP_X), row * (CARD_H + GAP_Y)
     card = Image.new("RGBA", (CARD_W, CARD_H), (0,0,0,0))
     cd = ImageDraw.Draw(card)
     cd.line([(0, 15), (0, 0), (15, 0)], fill=C_NEON, width=3)
     cd.line([(CARD_W-15, CARD_H), (CARD_W, CARD_H), (CARD_W, CARD_H-15)], fill=C_NEON, width=3)
     cd.line([(0, CARD_H-15), (0, CARD_H), (15, CARD_H)], fill=(255,255,255,50), width=2)
     cd.line([(CARD_W-15, 0), (CARD_W, 0), (CARD_W, 15)], fill=(255,255,255,50), width=2)
-    
     bbox = cd.textbbox((0,0), item.upper(), font=font_list)
-    tw = bbox[2] - bbox[0]
-    tx = (CARD_W - tw) // 2
-    ty = (CARD_H - (bbox[3]-bbox[1])) // 2 - bbox[1]
-    
-    cd.text((tx, ty), item.upper(), font=font_list, fill=C_TEXT)
+    cd.text(((CARD_W - (bbox[2]-bbox[0]))//2, (CARD_H - (bbox[3]-bbox[1]))//2 - bbox[1]), item.upper(), font=font_list, fill=C_TEXT)
     grid_img.alpha_composite(card, (x, y))
-
 grid_img.save(f"{WORKDIR}/grid.png", "PNG")
 
-# 5) الشعار
+# 5. الشعار
 try:
-    req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
-    logo_data = urllib.request.urlopen(req, timeout=25).read()
-    logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
-    ratio = LOGO_W / logo.width
-    logo = logo.resize((LOGO_W, int(logo.height * ratio)), Image.LANCZOS)
+    req = urllib.request.Request("$LOGO_URL", headers={"User-Agent": "Mozilla/5.0"})
+    logo = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=25).read())).convert("RGBA")
+    logo = logo.resize((140, int(logo.height * (140 / logo.width))), Image.LANCZOS)
     logo.save(f"{WORKDIR}/logo.png", "PNG")
-except Exception as e:
-    Image.new("RGBA", (LOGO_W, LOGO_W), (0,0,0,0)).save(f"{WORKDIR}/logo.png", "PNG")
+except Exception:
+    Image.new("RGBA", (140, 140), (0,0,0,0)).save(f"{WORKDIR}/logo.png", "PNG")
 
-# 6) تجميع المحتوى الثابت
+# 6. تجميع المحتوى
 content = Image.new("RGBA", (W, H), (0,0,0,0))
-title_img = Image.open(f"{WORKDIR}/title.png").convert("RGBA")
-sub_img = Image.open(f"{WORKDIR}/sub.png").convert("RGBA")
-
-content.alpha_composite(title_img, ((W - title_img.width)//2, Y_TITLE - title_img.height//2))
-content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB - sub_img.height//2))
-content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
+content.alpha_composite(Image.open(f"{WORKDIR}/title.png"), ((W - tw - 100)//2, 200 - (th+100)//2))
+content.alpha_composite(Image.open(f"{WORKDIR}/sub.png"), ((W - 1000)//2, 340 - 50))
+content.alpha_composite(grid_img, ((W - GRID_W)//2, 430))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-# 7) توليد Overlay الأخضر (LIVE) لكل ستريمر
+# 7. توليد Overlays
 font_live = load_font(FONT_EN, 42, 700)
 for item in items:
-    text = item.upper()
-    # إنشاء صورة شفافة
+    text = item.upper() + " :"
     tmp = Image.new("RGBA", (10, 10), (0,0,0,0))
     bbox = ImageDraw.Draw(tmp).textbbox((0,0), text, font=font_live)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    
-    # أبعاد الصورة (نص + مسافة + أيقونة)
-    img_w = tw + 80
-    img_h = th + 40
-    img = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
+    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+    img = Image.new("RGBA", (tw + 80, th + 40), (0,0,0,0))
     draw = ImageDraw.Draw(img)
+    tx, ty = 10, (img.height - th)//2 - bbox[1]
     
-    tx = 10
-    ty = (img_h - th) // 2 - bbox[1]
-    
-    # رسم النص الأخضر مع الظل والتوهج
-    # ظل أسود
     for dx in [-2, 2]:
         for dy in [-2, 2]:
-            draw.text((tx+dx, ty+dy), text + " :", font=font_live, fill=(0,0,0,255))
-    # توهج أخضر
-    glow_txt = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
-    ImageDraw.Draw(glow_txt).text((tx, ty), text + " :", font=font_live, fill=(0,255,0,255))
-    glow_txt = glow_txt.filter(ImageFilter.GaussianBlur(8))
-    img = Image.alpha_composite(img, glow_txt)
+            draw.text((tx+dx, ty+dy), text, font=font_live, fill=(0,0,0,255))
+    glow_txt = Image.new("RGBA", img.size, (0,0,0,0))
+    ImageDraw.Draw(glow_txt).text((tx, ty), text, font=font_live, fill=(0,255,0,255))
+    img = Image.alpha_composite(img, glow_txt.filter(ImageFilter.GaussianBlur(8)))
+    ImageDraw.Draw(img).text((tx, ty), text, font=font_live, fill=(0,255,0,255))
     
-    # النص الأساسي
-    draw = ImageDraw.Draw(img) # Re-init
-    draw.text((tx, ty), text + " :", font=font_live, fill=(0,255,0,255))
-    
-    # رسم أيقونة البث (Live Icon)
-    icon_x = tx + tw + 20
-    icon_cy = img_h // 2
-    icon_r = 12
-    
-    # النقطة المركزية
-    draw.ellipse([icon_x - 4, icon_cy - 4, icon_x + 4, icon_cy + 4], fill=(0,255,0,255))
-    # الأقواس
-    for r in [icon_r, icon_r+8, icon_r+16]:
-        draw.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=135, end=225, fill=(0,255,0,255), width=3)
-        draw.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=-45, end=45, fill=(0,255,0,255), width=3)
-
-    # توهج للأيقونة
-    glow_icon = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
-    gd_icon = ImageDraw.Draw(glow_icon)
-    gd_icon.ellipse([icon_x - 4, icon_cy - 4, icon_x + 4, icon_cy + 4], fill=(0,255,0,255))
-    for r in [icon_r, icon_r+8, icon_r+16]:
-        gd_icon.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=135, end=225, fill=(0,255,0,255), width=3)
-        gd_icon.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=-45, end=45, fill=(0,255,0,255), width=3)
-    glow_icon = glow_icon.filter(ImageFilter.GaussianBlur(5))
-    img = Image.alpha_composite(img, glow_icon)
-
+    ix, iy = tx + tw + 20, img.height // 2
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([ix-4, iy-4, ix+4, iy+4], fill=(0,255,0,255))
+    for r in [12, 20, 28]:
+        draw.arc([ix-r, iy-r, ix+r, iy+r], start=135, end=225, fill=(0,255,0,255), width=3)
+        draw.arc([ix-r, iy-r, ix+r, iy+r], start=-45, end=45, fill=(0,255,0,255), width=3)
     img.save(f"{WORKDIR}/live_{item}.png", "PNG")
 
-print("✅ اكتمل التوليد (بما في ذلك Overlays للبث)")
+print("✅ اكتمل التوليد")
 PYEOF
 
 echo "🎨 توليد صور الشاشة..."
@@ -273,7 +198,6 @@ mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 cleanup() {
-    echo "🛑 إغلاق آمن..."
     kill -TERM "$OUT" 2>/dev/null
     kill -TERM "$PROD" 2>/dev/null
     sleep 1
@@ -284,7 +208,7 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار (Cyberpunk)
+#  المنتجات (1080p)
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
     echo "⏳ تشغيل الشاشة (Standby Mode)..."
@@ -301,7 +225,7 @@ start_producer_standby() {
 [3:v]format=rgba[scanner];\
 [v1][scanner]overlay=x=0:y='mod(t*300\,H+100)-50'[v2];\
 [2:v]format=rgba,scale='iw*(1+0.05*sin(2*PI*t/3))':-1:eval=frame[logo];\
-[v2][logo]overlay=x=(W-w)/2:y=$Y_LOGO[vout]" \
+[v2][logo]overlay=x=(W-w)/2:y=40[vout]" \
         -map "[vout]" -map 4:a:0 \
         -c:v libx264 -preset ultrafast -tune zerolatency \
         -pix_fmt yuv420p -r $FPS -g $GOP \
@@ -311,46 +235,35 @@ start_producer_standby() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  منتج البث المباشر (مع Overlay)
-# ═══════════════════════════════════════════════════
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
     local OVERLAY="$WORKDIR/live_${NAME}.png"
+    echo "🔴 منتج مباشر: $NAME (1080p Overlay)"
     
-    echo "🔴 منتج مباشر: $NAME (مع Overlay)"
-    
-    # التحقق من وجود صورة الستريمر
     if [ ! -s "$OVERLAY" ]; then
-        echo "⚠️ لم يتم العثور على Overlay لـ $NAME، سيتم البث بدون شريط."
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -headers "User-Agent: $UA" \
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-            -reconnect_delay_max 5 \
-            -rw_timeout 10000000 \
+            -reconnect_delay_max 5 -rw_timeout 15000000 \
             -analyzeduration 1000000 -probesize 1000000 \
-            -fflags +genpts+igndts \
-            -i "$M3U8" \
+            -fflags +genpts+igndts -i "$M3U8" \
             -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
-            -max_muxing_queue_size 4096 \
-            -muxdelay 0.1 -muxpreload 0.1 \
+            -max_muxing_queue_size 4096 -muxdelay 0.1 -muxpreload 0.1 \
             -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     else
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -headers "User-Agent: $UA" \
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-            -reconnect_delay_max 5 \
-            -rw_timeout 10000000 \
+            -reconnect_delay_max 5 -rw_timeout 15000000 \
             -analyzeduration 1000000 -probesize 1000000 \
-            -fflags +genpts+igndts \
-            -i "$M3U8" \
-            -loop 1 -framerate $FPS -i "$OVERLAY" \
-            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=20[vout]" \
+            -fflags +genpts+igndts -i "$M3U8" \
+            -loop 1 -framerate 1 -i "$OVERLAY" \
+            -filter_complex "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=60[bg];[bg][1:v]overlay=x=(W-w)/2:y=20[vout]" \
             -map "[vout]" -map 0:a:0? \
             -c:v libx264 -preset ultrafast -tune zerolatency \
             -pix_fmt yuv420p -r $FPS -g $GOP \
-            -b:v 6500k -maxrate 7000k -bufsize 14000k \
+            -b:v 6000k -maxrate 6500k -bufsize 12000k \
             -c:a aac -b:a 128k -ar 44100 -ac 2 \
             -max_muxing_queue_size 4096 \
             -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
@@ -358,25 +271,18 @@ start_producer_live() {
     PROD=$!
 }
 
-# ═══════════════════════════════════════════════════
-#  المخرج (Zero Downtime)
-# ═══════════════════════════════════════════════════
 start_output() {
     echo "🔗 الاتصال بـ Restream..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -thread_queue_size 512 \
-        -f mpegts -i "$FIFO" \
-        -map 0:v:0 -map 0:a:0? \
-        -c:v copy \
+        -thread_queue_size 512 -f mpegts -i "$FIFO" \
+        -map 0:v:0 -map 0:a:0? -c:v copy \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 \
-        -flvflags no_duration_filesize \
-        -rw_timeout 5000000 \
-        -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
+        -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+        -rw_timeout 15000000 -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
     sleep 6
     if ! kill -0 "$OUT" 2>/dev/null; then
-        echo "❌ فشل المخرج:"; tail -n 10 /tmp/out.log
+        echo "❌ فشل المخرج:"; tail -n 5 /tmp/out.log
         return 1
     fi
     echo "✅ المخرج شغال (PID: $OUT)"
@@ -384,32 +290,21 @@ start_output() {
 }
 
 kill_producer() {
-    if [ -n "$PROD" ]; then
-        kill -TERM "$PROD" 2>/dev/null
-        sleep 1
-        kill -9 "$PROD" 2>/dev/null
-        wait "$PROD" 2>/dev/null
-    fi
+    if [ -n "$PROD" ]; then kill -TERM "$PROD" 2>/dev/null; sleep 1; kill -9 "$PROD" 2>/dev/null; wait "$PROD" 2>/dev/null; fi
     PROD=""
 }
 
 # ═══════════════════════════════════════════════════
-#  التشغيل
+#  التشغيل 
 # ═══════════════════════════════════════════════════
 echo "🚀 بدء التشغيل..."
-
 start_producer_standby
 sleep 5
 kill -0 "$PROD" 2>/dev/null || { echo "❌ المنتج مات"; cat /tmp/prod.log; exit 1; }
 
 if [ -n "$GH_TOKEN" ] && [ -n "$GITHUB_RUN_ID" ]; then
-    echo "🔍 البحث عن الرنات القديمة لإلغائها..."
-    OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress \
-          --json databaseId -q ".[].databaseId" 2>/dev/null | \
-          awk -v m="$GITHUB_RUN_ID" '$1 < m')
-    for R in $OLD; do
-        timeout 8 gh run cancel "$R" 2>/dev/null
-    done
+    OLD=$(timeout 10 gh run list --workflow="main.yml" --status=in_progress --json databaseId -q ".[].databaseId" 2>/dev/null | awk -v m="$GITHUB_RUN_ID" '$1 < m')
+    for R in $OLD; do timeout 8 gh run cancel "$R" 2>/dev/null; done
     sleep 2
 fi
 
@@ -429,11 +324,8 @@ while true; do
     if ! kill -0 "$PROD" 2>/dev/null; then
         echo "⚠️ المنتج مات — إعادة..."
         if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
-            URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
-                  --stream-timeout 15 "https://kick.com/$ACTIVE" best \
-                  --stream-url 2>/dev/null | grep -m1 "^http")
-            if [ -n "$URL" ]; then start_producer_live "$URL" "$ACTIVE"
-            else start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1; fi
+            URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" --stream-timeout 15 "https://kick.com/$ACTIVE" best --stream-url 2>/dev/null | grep -m1 "^http")
+            if [ -n "$URL" ]; then start_producer_live "$URL" "$ACTIVE"; else start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1; fi
         else
             start_producer_standby; MODE="STANDBY"
         fi
@@ -445,11 +337,8 @@ while true; do
     if [ "$MODE" = "LIVE" ] && [ "$ACTIVE_IDX" -ge 0 ]; then LIMIT=$((ACTIVE_IDX + 1)); fi
 
     for ((i=0; i<LIMIT; i++)); do
-        S=$(echo "${STREAMERS[$i]}" | xargs)
-        [ -z "$S" ] && continue
-        URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" \
-              --stream-timeout 15 "https://kick.com/$S" best \
-              --stream-url 2>/dev/null | grep -m1 "^http")
+        S=$(echo "${STREAMERS[$i]}" | xargs); [ -z "$S" ] && continue
+        URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" --stream-timeout 15 "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
         if [ -n "$URL" ]; then FOUND="$S"; FOUND_URL="$URL"; FOUND_IDX=$i; break; fi
     done
 
@@ -459,18 +348,12 @@ while true; do
             kill_producer; sleep 1
             start_producer_live "$FOUND_URL" "$FOUND"
             sleep 6
-            if kill -0 "$PROD" 2>/dev/null; then
-                MODE="LIVE"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX
-                echo "✅ مباشر: $FOUND"
-            else
-                MODE="NONE"
-            fi
+            if kill -0 "$PROD" 2>/dev/null; then MODE="LIVE"; ACTIVE="$FOUND"; ACTIVE_IDX=$FOUND_IDX; echo "✅ مباشر: $FOUND"; else MODE="NONE"; fi
         fi
     else
         if [ "$MODE" != "STANDBY" ]; then
             echo "⏳ لا يوجد بث — عودة للانتظار"
-            kill_producer; sleep 1; start_producer_standby; sleep 3
-            MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
+            kill_producer; sleep 1; start_producer_standby; sleep 3; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
         fi
     fi
 
@@ -480,5 +363,5 @@ while true; do
         PS=$(kill -0 "$PROD" 2>/dev/null && echo "حي" || echo "ميت")
         echo "── [$(date -u +%H:%M:%S)] $MODE | OUT=$OS | PROD=$PS ──"
     fi
-    sleep 15
+    sleep 3
 done
