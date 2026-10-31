@@ -2,12 +2,12 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Kick → Restream (Cyberpunk Tech UI)
+#  Respect Broadcast — Kick → Restream (Cyberpunk Tech UI + Live Overlay)
 # ═══════════════════════════════════════════════════
 
 # ─── الإعدادات ───
 TITLE_AR="RESPECT"
-SUBTITLE_AR="جاري انتظار ستريمرز ريسبكت ..."
+SUBTITLE_AR="جاري انتظار انضمام الستريمرز..."
 LABEL_AR="ACTIVE ROSTER"
 
 COLOR_TITLE="#d4b3ff"
@@ -63,7 +63,7 @@ echo "🔢 عدد الستريمرز: ${#STREAMERS[@]}"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  توليد الصور (Cyberpunk Style)
+#  توليد الصور (Cyberpunk Style + Live Overlays)
 # ═══════════════════════════════════════════════════
 cat > /tmp/make_respect.py <<PYEOF
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -75,7 +75,6 @@ FONT_AR = "$FONT_AR"
 FONT_EN = "$FONT_EN"
 TITLE = "$TITLE_AR"
 SUBTITLE = "$SUBTITLE_AR"
-LABEL = "$LABEL_AR"
 C_TITLE = "$COLOR_TITLE"
 C_SUB = "$COLOR_SUB"
 C_NEON = "$COLOR_NEON"
@@ -113,14 +112,11 @@ for y in range(H):
     d.line([(0, y), (W, y)], fill=(r, g, b))
 bg = bg.convert("RGBA")
 
-# خطوط الشبكة
 grid_bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 gd = ImageDraw.Draw(grid_bg)
 for x in range(0, W, 80): gd.line([(x, 0), (x, H)], fill=(166, 77, 255, 20), width=1)
 for y in range(0, H, 80): gd.line([(0, y), (W, y)], fill=(166, 77, 255, 20), width=1)
 bg = Image.alpha_composite(bg, grid_bg)
-
-# ✅ إصلاح الخطأ: حفظ صورة الخلفية
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
 # 2) نص العنوان (RESPECT)
@@ -131,7 +127,6 @@ tw, th = bbox_t[2]-bbox_t[0], bbox_t[3]-bbox_t[1]
 
 title_img = Image.new("RGBA", (tw + 100, th + 100), (0,0,0,0))
 td = ImageDraw.Draw(title_img)
-# توهج
 td.text(((title_img.width - tw)//2, (title_img.height - th)//2), TITLE, font=font_title, fill=(212, 179, 255, 255))
 glow = title_img.filter(ImageFilter.GaussianBlur(20))
 title_img = Image.alpha_composite(glow, title_img)
@@ -146,7 +141,7 @@ sw = bbox_s[2] - bbox_s[0]
 sd.text(((sub_img.width - sw)//2, 20), SUBTITLE, font=font_sub, fill=C_SUB, direction="rtl")
 sub_img.save(f"{WORKDIR}/sub.png", "PNG")
 
-# 4) قائمة الستريمرز (شبكة 6 أعمدة)
+# 4) قائمة الستريمرز
 items = [s.strip() for s in STREAMERS_STR.split(',') if s.strip()]
 font_list = load_font(FONT_EN, FS_LIST, 700)
 
@@ -169,12 +164,10 @@ for i, item in enumerate(items):
     
     card = Image.new("RGBA", (CARD_W, CARD_H), (0,0,0,0))
     cd = ImageDraw.Draw(card)
-    
-    # تصميم الأقواس التكنولوجية (Neon Brackets)
-    cd.line([(0, 15), (0, 0), (15, 0)], fill=C_NEON, width=3) # أعلى يسار
-    cd.line([(CARD_W-15, CARD_H), (CARD_W, CARD_H), (CARD_W, CARD_H-15)], fill=C_NEON, width=3) # أسفل يمين
-    cd.line([(0, CARD_H-15), (0, CARD_H), (15, CARD_H)], fill=(255,255,255,50), width=2) # أسفل يسار (خفيف)
-    cd.line([(CARD_W-15, 0), (CARD_W, 0), (CARD_W, 15)], fill=(255,255,255,50), width=2) # أعلى يمين (خفيف)
+    cd.line([(0, 15), (0, 0), (15, 0)], fill=C_NEON, width=3)
+    cd.line([(CARD_W-15, CARD_H), (CARD_W, CARD_H), (CARD_W, CARD_H-15)], fill=C_NEON, width=3)
+    cd.line([(0, CARD_H-15), (0, CARD_H), (15, CARD_H)], fill=(255,255,255,50), width=2)
+    cd.line([(CARD_W-15, 0), (CARD_W, 0), (CARD_W, 15)], fill=(255,255,255,50), width=2)
     
     bbox = cd.textbbox((0,0), item.upper(), font=font_list)
     tw = bbox[2] - bbox[0]
@@ -195,7 +188,6 @@ try:
     logo = logo.resize((LOGO_W, int(logo.height * ratio)), Image.LANCZOS)
     logo.save(f"{WORKDIR}/logo.png", "PNG")
 except Exception as e:
-    print(f"⚠️ logo fail: {e}")
     Image.new("RGBA", (LOGO_W, LOGO_W), (0,0,0,0)).save(f"{WORKDIR}/logo.png", "PNG")
 
 # 6) تجميع المحتوى الثابت
@@ -208,7 +200,65 @@ content.alpha_composite(sub_img, ((W - sub_img.width)//2, Y_SUB - sub_img.height
 content.alpha_composite(grid_img, ((W - GRID_W)//2, Y_GRID_START))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-print("✅ اكتمل التوليد")
+# 7) توليد Overlay الأخضر (LIVE) لكل ستريمر
+font_live = load_font(FONT_EN, 42, 700)
+for item in items:
+    text = item.upper()
+    # إنشاء صورة شفافة
+    tmp = Image.new("RGBA", (10, 10), (0,0,0,0))
+    bbox = ImageDraw.Draw(tmp).textbbox((0,0), text, font=font_live)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    
+    # أبعاد الصورة (نص + مسافة + أيقونة)
+    img_w = tw + 80
+    img_h = th + 40
+    img = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    
+    tx = 10
+    ty = (img_h - th) // 2 - bbox[1]
+    
+    # رسم النص الأخضر مع الظل والتوهج
+    # ظل أسود
+    for dx in [-2, 2]:
+        for dy in [-2, 2]:
+            draw.text((tx+dx, ty+dy), text + " :", font=font_live, fill=(0,0,0,255))
+    # توهج أخضر
+    glow_txt = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
+    ImageDraw.Draw(glow_txt).text((tx, ty), text + " :", font=font_live, fill=(0,255,0,255))
+    glow_txt = glow_txt.filter(ImageFilter.GaussianBlur(8))
+    img = Image.alpha_composite(img, glow_txt)
+    
+    # النص الأساسي
+    draw = ImageDraw.Draw(img) # Re-init
+    draw.text((tx, ty), text + " :", font=font_live, fill=(0,255,0,255))
+    
+    # رسم أيقونة البث (Live Icon)
+    icon_x = tx + tw + 20
+    icon_cy = img_h // 2
+    icon_r = 12
+    
+    # النقطة المركزية
+    draw.ellipse([icon_x - 4, icon_cy - 4, icon_x + 4, icon_cy + 4], fill=(0,255,0,255))
+    # الأقواس
+    for r in [icon_r, icon_r+8, icon_r+16]:
+        draw.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=135, end=225, fill=(0,255,0,255), width=3)
+        draw.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=-45, end=45, fill=(0,255,0,255), width=3)
+
+    # توهج للأيقونة
+    glow_icon = Image.new("RGBA", (img_w, img_h), (0,0,0,0))
+    gd_icon = ImageDraw.Draw(glow_icon)
+    gd_icon.ellipse([icon_x - 4, icon_cy - 4, icon_x + 4, icon_cy + 4], fill=(0,255,0,255))
+    for r in [icon_r, icon_r+8, icon_r+16]:
+        gd_icon.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=135, end=225, fill=(0,255,0,255), width=3)
+        gd_icon.arc([icon_x - r, icon_cy - r, icon_x + r, icon_cy + r], start=-45, end=45, fill=(0,255,0,255), width=3)
+    glow_icon = glow_icon.filter(ImageFilter.GaussianBlur(5))
+    img = Image.alpha_composite(img, glow_icon)
+
+    img.save(f"{WORKDIR}/live_{item}.png", "PNG")
+
+print("✅ اكتمل التوليد (بما في ذلك Overlays للبث)")
 PYEOF
 
 echo "🎨 توليد صور الشاشة..."
@@ -234,10 +284,10 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # ═══════════════════════════════════════════════════
-#  منتج شاشة الانتظار (Cyberpunk Animations)
+#  منتج شاشة الانتظار (Cyberpunk)
 # ═══════════════════════════════════════════════════
 start_producer_standby() {
-    echo "⏳ تشغيل الشاشة (Cyberpunk Mode)..."
+    echo "⏳ تشغيل الشاشة (Standby Mode)..."
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -loop 1 -framerate $FPS -i "$WORKDIR/bg.png" \
         -loop 1 -framerate $FPS -i "$WORKDIR/content.png" \
@@ -262,24 +312,49 @@ start_producer_standby() {
 }
 
 # ═══════════════════════════════════════════════════
-#  منتج البث المباشر
+#  منتج البث المباشر (مع Overlay)
 # ═══════════════════════════════════════════════════
 start_producer_live() {
     local M3U8="$1"
     local NAME="$2"
-    echo "🔴 منتج مباشر: $NAME"
-    ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -headers "User-Agent: $UA" \
-        -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
-        -reconnect_delay_max 5 \
-        -rw_timeout 10000000 \
-        -analyzeduration 1000000 -probesize 1000000 \
-        -fflags +genpts+igndts \
-        -i "$M3U8" \
-        -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 \
-        -muxdelay 0.1 -muxpreload 0.1 \
-        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+    local OVERLAY="$WORKDIR/live_${NAME}.png"
+    
+    echo "🔴 منتج مباشر: $NAME (مع Overlay)"
+    
+    # التحقق من وجود صورة الستريمر
+    if [ ! -s "$OVERLAY" ]; then
+        echo "⚠️ لم يتم العثور على Overlay لـ $NAME، سيتم البث بدون شريط."
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
+            -headers "User-Agent: $UA" \
+            -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+            -reconnect_delay_max 5 \
+            -rw_timeout 10000000 \
+            -analyzeduration 1000000 -probesize 1000000 \
+            -fflags +genpts+igndts \
+            -i "$M3U8" \
+            -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 \
+            -muxdelay 0.1 -muxpreload 0.1 \
+            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+    else
+        ffmpeg -y -hide_banner -loglevel warning -nostdin \
+            -headers "User-Agent: $UA" \
+            -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
+            -reconnect_delay_max 5 \
+            -rw_timeout 10000000 \
+            -analyzeduration 1000000 -probesize 1000000 \
+            -fflags +genpts+igndts \
+            -i "$M3U8" \
+            -loop 1 -framerate $FPS -i "$OVERLAY" \
+            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=20[vout]" \
+            -map "[vout]" -map 0:a:0? \
+            -c:v libx264 -preset ultrafast -tune zerolatency \
+            -pix_fmt yuv420p -r $FPS -g $GOP \
+            -b:v 6500k -maxrate 7000k -bufsize 14000k \
+            -c:a aac -b:a 128k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 \
+            -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
+    fi
     PROD=$!
 }
 
@@ -292,9 +367,7 @@ start_output() {
         -thread_queue_size 512 \
         -f mpegts -i "$FIFO" \
         -map 0:v:0 -map 0:a:0? \
-        -c:v libx264 -preset ultrafast -tune zerolatency \
-        -pix_fmt yuv420p -g $GOP -r $FPS \
-        -b:v 6000k -maxrate 6500k -bufsize 14000k \
+        -c:v copy \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 \
         -flvflags no_duration_filesize \
