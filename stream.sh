@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Zero-Downtime (100% Guaranteed)
+#  Respect Broadcast — 24/7 Zero-Downtime (1080p Fixed)
 # ═══════════════════════════════════════════════════
 
 TITLE_AR="RESPECT"
@@ -80,6 +80,7 @@ def load_font(path, size, weight=700):
     except Exception: pass
     return font
 
+# 1. الخلفية
 bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
@@ -97,6 +98,7 @@ for y in range(0, H, 80): gd.line([(0, y), (W, y)], fill=(166, 77, 255, 20), wid
 bg = Image.alpha_composite(bg, grid_bg)
 bg.convert("RGB").save(f"{WORKDIR}/bg.png", "PNG")
 
+# 2. العنوان
 font_title = load_font(FONT_EN, 130, 900)
 tmp_t = Image.new("RGBA", (10, 10), (0,0,0,0))
 bbox_t = ImageDraw.Draw(tmp_t).textbbox((0,0), TITLE, font=font_title)
@@ -108,6 +110,7 @@ glow = title_img.filter(ImageFilter.GaussianBlur(20))
 title_img = Image.alpha_composite(glow, title_img)
 title_img.save(f"{WORKDIR}/title.png", "PNG")
 
+# 3. النص الفرعي
 font_sub = load_font(FONT_AR, 40, 700)
 sub_img = Image.new("RGBA", (1000, 100), (0,0,0,0))
 sd = ImageDraw.Draw(sub_img)
@@ -116,6 +119,7 @@ sw = bbox_s[2] - bbox_s[0]
 sd.text(((sub_img.width - sw)//2, 20), SUBTITLE, font=font_sub, fill=C_SUB, direction="rtl")
 sub_img.save(f"{WORKDIR}/sub.png", "PNG")
 
+# 4. القائمة
 items = [s.strip() for s in "$STREAMERS_LIST".split(',') if s.strip()]
 font_list = load_font(FONT_EN, 22, 700)
 COLS = 6
@@ -139,6 +143,7 @@ for i, item in enumerate(items):
     grid_img.alpha_composite(card, (x, y))
 grid_img.save(f"{WORKDIR}/grid.png", "PNG")
 
+# 5. الشعار
 try:
     req = urllib.request.Request("$LOGO_URL", headers={"User-Agent": "Mozilla/5.0"})
     logo = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=25).read())).convert("RGBA")
@@ -147,12 +152,14 @@ try:
 except Exception:
     Image.new("RGBA", (140, 140), (0,0,0,0)).save(f"{WORKDIR}/logo.png", "PNG")
 
+# 6. تجميع المحتوى
 content = Image.new("RGBA", (W, H), (0,0,0,0))
 content.alpha_composite(Image.open(f"{WORKDIR}/title.png"), ((W - tw - 100)//2, 200 - (th+100)//2))
 content.alpha_composite(Image.open(f"{WORKDIR}/sub.png"), ((W - 1000)//2, 340 - 50))
 content.alpha_composite(grid_img, ((W - GRID_W)//2, 430))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
+# 7. توليد Overlays (الشريط الأخضر)
 font_live = load_font(FONT_EN, 42, 700)
 for item in items:
     text = item.upper() + " :"
@@ -271,13 +278,12 @@ start_producer_live() {
 
 start_output() {
     echo "🔗 الاتصال بـ Restream..."
-    # تم إزالة -rw_timeout من هنا لضمان عدم انهيار المخرج أبداً
     ffmpeg -y -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 -f mpegts -i "$FIFO" \
         -map 0:v:0 -map 0:a:0? -c:v copy \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
-        -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
+        -rw_timeout 15000000 -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
     sleep 6
     if ! kill -0 "$OUT" 2>/dev/null; then
@@ -324,12 +330,7 @@ while true; do
         echo "⚠️ المنتج مات — إعادة..."
         if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
             URL=$(timeout 20 streamlink --http-header "User-Agent=$UA" --stream-timeout 15 "https://kick.com/$ACTIVE" best --stream-url 2>/dev/null | grep -m1 "^http")
-            if [ -n "$URL" ]; then 
-                start_producer_live "$URL" "$ACTIVE" 
-            else 
-                # تشغيل شاشة الانتظار فوراً لحماية المخرج
-                start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1
-            fi
+            if [ -n "$URL" ]; then start_producer_live "$URL" "$ACTIVE"; else start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX=-1; fi
         else
             start_producer_standby; MODE="STANDBY"
         fi
