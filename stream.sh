@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — 24/7 Zero-Downtime (Smaller Overlay)
+#  Respect Broadcast — 24/7 Zero-Downtime (1080p Fixed)
 # ═══════════════════════════════════════════════════
 
 TITLE_AR="RESPECT"
@@ -67,6 +67,7 @@ C_SUB = "$COLOR_SUB"
 C_NEON = "$COLOR_NEON"
 C_TEXT = "$COLOR_TEXT"
 
+# ✅ إصلاح الخطأ: إضافة تعريف الألوان المفقودة
 BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
 BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
 
@@ -159,15 +160,14 @@ content.alpha_composite(Image.open(f"{WORKDIR}/sub.png"), ((W - 1000)//2, 340 - 
 content.alpha_composite(grid_img, ((W - GRID_W)//2, 430))
 content.save(f"{WORKDIR}/content.png", "PNG")
 
-# 7. توليد Overlays (الشريط الأخضر المصغر)
-font_live = load_font(FONT_EN, 30, 700)
+# 7. توليد Overlays
+font_live = load_font(FONT_EN, 42, 700)
 for item in items:
     text = item.upper() + " :"
     tmp = Image.new("RGBA", (10, 10), (0,0,0,0))
     bbox = ImageDraw.Draw(tmp).textbbox((0,0), text, font=font_live)
     tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    
-    img = Image.new("RGBA", (tw + 60, th + 30), (0,0,0,0))
+    img = Image.new("RGBA", (tw + 80, th + 40), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     tx, ty = 10, (img.height - th)//2 - bbox[1]
     
@@ -176,14 +176,13 @@ for item in items:
             draw.text((tx+dx, ty+dy), text, font=font_live, fill=(0,0,0,255))
     glow_txt = Image.new("RGBA", img.size, (0,0,0,0))
     ImageDraw.Draw(glow_txt).text((tx, ty), text, font=font_live, fill=(0,255,0,255))
-    img = Image.alpha_composite(img, glow_txt.filter(ImageFilter.GaussianBlur(6)))
+    img = Image.alpha_composite(img, glow_txt.filter(ImageFilter.GaussianBlur(8)))
     ImageDraw.Draw(img).text((tx, ty), text, font=font_live, fill=(0,255,0,255))
     
-    ix, iy = tx + tw + 15, img.height // 2
+    ix, iy = tx + tw + 20, img.height // 2
     draw = ImageDraw.Draw(img)
-    
-    draw.ellipse([ix-3, iy-3, ix+3, iy+3], fill=(0,255,0,255))
-    for r in [8, 14, 20]:
+    draw.ellipse([ix-4, iy-4, ix+4, iy+4], fill=(0,255,0,255))
+    for r in [12, 20, 28]:
         draw.arc([ix-r, iy-r, ix+r, iy+r], start=135, end=225, fill=(0,255,0,255), width=3)
         draw.arc([ix-r, iy-r, ix+r, iy+r], start=-45, end=45, fill=(0,255,0,255), width=3)
     img.save(f"{WORKDIR}/live_{item}.png", "PNG")
@@ -257,7 +256,6 @@ start_producer_live() {
             -max_muxing_queue_size 4096 -muxdelay 0.1 -muxpreload 0.1 \
             -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     else
-        # 🛠️ تم إزالة السطر القاتل لضمان عدم انهيار السيرفر
         ffmpeg -y -hide_banner -loglevel warning -nostdin \
             -headers "User-Agent: $UA" \
             -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 \
@@ -265,7 +263,7 @@ start_producer_live() {
             -analyzeduration 1000000 -probesize 1000000 \
             -fflags +genpts+igndts -i "$M3U8" \
             -loop 1 -framerate 1 -i "$OVERLAY" \
-            -filter_complex "[0:v][1:v]overlay=x=(W-w)/2:y=10[vout]" \
+            -filter_complex "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=60[bg];[bg][1:v]overlay=x=(W-w)/2:y=20[vout]" \
             -map "[vout]" -map 0:a:0? \
             -c:v libx264 -preset ultrafast -tune zerolatency \
             -pix_fmt yuv420p -r $FPS -g $GOP \
