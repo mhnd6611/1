@@ -67,6 +67,10 @@ C_SUB = "$COLOR_SUB"
 C_NEON = "$COLOR_NEON"
 C_TEXT = "$COLOR_TEXT"
 
+# ✅ إصلاح الخطأ: إضافة تعريف الألوان المفقودة
+BG_TOP = ($BG_TOP_R, $BG_TOP_G, $BG_TOP_B)
+BG_BOT = ($BG_BOT_R, $BG_BOT_G, $BG_BOT_B)
+
 def load_font(path, size, weight=700):
     font = ImageFont.truetype(path, size)
     try:
