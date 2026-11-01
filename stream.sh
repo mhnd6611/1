@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Ultimate Zero-Gap (ChatGPT Approved)
+#  Respect Broadcast — Anti-Flip-Flop Architecture
 # ═══════════════════════════════════════════════════
 
 STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,NEFOXD,RAYN,xya7ya,W1pey,AL_Hashidi,moustache,ALRND,klash,OGxHusni,Sayko_911,ZAiKRx}"
@@ -19,11 +19,11 @@ WORKDIR="/tmp/respect_ui"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 mkdir -p "$WORKDIR"
 
-# 1. توليد شاشة الانتظار مرة واحدة
+# 1. توليد شاشة الانتظار
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تجهيز شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 import os
 W, H = 1920, 1080
 WORKDIR = os.environ["WORKDIR"]
@@ -33,15 +33,14 @@ d = ImageDraw.Draw(bg)
 try:
     font = ImageFont.truetype(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 100)
     font_sub = ImageFont.truetype(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 40)
-    font_list = ImageFont.truetype(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 22)
+    font_list = ImageFont.truetype(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 24)
     d.text((W//2, 200), "RESPECT", font=font, fill=(212, 179, 255), anchor="mm")
     d.text((W//2, 300), "جاري انتظار انضمام الستريمرز...", font=font_sub, fill=(255, 255, 255), anchor="mm")
     COLS = 5
     for i, item in enumerate(STREAMERS):
         row, col = i // COLS, i % COLS
-        x, y = 200 + col * 320, 400 + row * 80
-        d.rounded_rectangle([(x, y), (x+300, y+55)], radius=8, fill=(255,255,255,10), outline=(166,77,255,120), width=2)
-        d.text((x+150, y+27), item.upper(), font=font_list, fill=(255,255,255), anchor="mm")
+        x, y = 250 + col * 300, 450 + row * 60
+        d.text((x, y), item.upper(), font=font_list, fill=(255, 255, 255), anchor="lm")
 except Exception as e: print(e)
 bg.save(f"{WORKDIR}/bg.png")
 PYEOF
@@ -62,7 +61,7 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# 3. المخرج (OUT) - ثابت ولا يغلق أبداً (بدون reconnect لأنه لا يعمل مع RTMP)
+# 3. المخرج (OUT)
 start_output() {
     ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 \
         -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
@@ -73,14 +72,14 @@ start_output() {
     sleep 3
 }
 
-# 4. شاشة الانتظار (Standby) - نسخ مباشر
+# 4. شاشة الانتظار
 start_producer_standby() {
     setsid ffmpeg -y -hide_banner -loglevel warning -nostdin -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
         -c copy -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     PROD=$!
 }
 
-# 5. البث المباشر (Live)
+# 5. البث المباشر
 start_producer_live() {
     setsid bash -c "streamlink --http-header 'User-Agent=$UA' 'https://kick.com/$1' best --stdout 2>/dev/null | \
         ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
@@ -97,11 +96,10 @@ kill_producer() {
     PROD=""
 }
 
-# 6. دالة البحث (باستخدام streamlink للتحقق من البث بدقة)
+# 6. البحث عن ستريمر
 find_live_streamer() {
     for S in "${STREAMERS[@]}"; do
-        # استخدام streamlink مع مهلة قصيرة جداً (ثانية واحدة)
-        URL=$(timeout 1 streamlink --http-header "User-Agent=$UA" "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
+        URL=$(timeout 3 streamlink --http-header "User-Agent=$UA" "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
         if [ -n "$URL" ]; then
             echo "$S"
             return 0
@@ -122,22 +120,26 @@ MODE="STANDBY"
 ACTIVE=""
 
 while true; do
+    # إذا مات المخرج نعيد تشغيله
     if ! kill -0 "$OUT" 2>/dev/null; then
         start_output
     fi
 
+    # إذا مات المنتج (سواء الانتظار أو البث) نرجع للانتظار
     if ! kill -0 "$PROD" 2>/dev/null; then
+        echo "⚠️ المنتج توقف — تشغيل الانتظار..."
         start_producer_standby
         MODE="STANDBY"; ACTIVE=""
     fi
 
+    # البحث عن ستريمر فقط إذا كنا في وضع الانتظار
     if [ "$MODE" = "STANDBY" ]; then
         FOUND=$(find_live_streamer)
         if [ -n "$FOUND" ]; then
             echo "🎯 وجدنا: $FOUND (تبديل...)"
             kill_producer; sleep 0.1
             start_producer_live "$FOUND"
-            sleep 1
+            sleep 2
             if kill -0 "$PROD" 2>/dev/null; then 
                 MODE="LIVE"; ACTIVE="$FOUND"; echo "✅ مباشر: $FOUND"
             else 
@@ -146,14 +148,8 @@ while true; do
         fi
     fi
 
-    if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
-        URL=$(timeout 1 streamlink --http-header "User-Agent=$UA" "https://kick.com/$ACTIVE" best --stream-url 2>/dev/null | grep -m1 "^http")
-        if [ -z "$URL" ]; then
-            echo "⏳ توقف $ACTIVE — تحويل للانتظار..."
-            kill_producer; sleep 0.1
-            start_producer_standby
-            MODE="STANDBY"; ACTIVE=""
-        fi
-    fi
+    # في وضع البث المباشر، لا نفحص الستريمر بـ streamlink عشان ما نصير نطرده بالغلط
+    # نكتفي بمراقبة إذا مات المنتج (اللي يفحصه الكود فوق)
+    
     sleep 1
 done
