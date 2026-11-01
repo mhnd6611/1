@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Anti-Flip-Flop Architecture
+#  Respect Broadcast — Smart Priority Architecture
 # ═══════════════════════════════════════════════════
 
 STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,NEFOXD,RAYN,xya7ya,W1pey,AL_Hashidi,moustache,ALRND,klash,OGxHusni,Sayko_911,ZAiKRx}"
@@ -19,7 +19,7 @@ WORKDIR="/tmp/respect_ui"
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 mkdir -p "$WORKDIR"
 
-# 1. توليد شاشة الانتظار
+# 1. توليد شاشة الانتظار (بدون مربعات بيضاء)
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تجهيز شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
@@ -34,8 +34,10 @@ try:
     font = ImageFont.truetype(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 100)
     font_sub = ImageFont.truetype(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 40)
     font_list = ImageFont.truetype(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 24)
+    
     d.text((W//2, 200), "RESPECT", font=font, fill=(212, 179, 255), anchor="mm")
     d.text((W//2, 300), "جاري انتظار انضمام الستريمرز...", font=font_sub, fill=(255, 255, 255), anchor="mm")
+    
     COLS = 5
     for i, item in enumerate(STREAMERS):
         row, col = i // COLS, i % COLS
@@ -96,18 +98,6 @@ kill_producer() {
     PROD=""
 }
 
-# 6. البحث عن ستريمر
-find_live_streamer() {
-    for S in "${STREAMERS[@]}"; do
-        URL=$(timeout 3 streamlink --http-header "User-Agent=$UA" "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
-        if [ -n "$URL" ]; then
-            echo "$S"
-            return 0
-        fi
-    done
-    return 1
-}
-
 # ═══════════════════════════════════════════════════
 #  التشغيل الرئيسي
 # ═══════════════════════════════════════════════════
@@ -118,38 +108,76 @@ start_output
 
 MODE="STANDBY"
 ACTIVE=""
+ACTIVE_IDX="-1"
 
 while true; do
-    # إذا مات المخرج نعيد تشغيله
+    # التأكد من المخرج
     if ! kill -0 "$OUT" 2>/dev/null; then
         start_output
     fi
 
-    # إذا مات المنتج (سواء الانتظار أو البث) نرجع للانتظار
+    # التأكد من المنتج
     if ! kill -0 "$PROD" 2>/dev/null; then
-        echo "⚠️ المنتج توقف — تشغيل الانتظار..."
         start_producer_standby
-        MODE="STANDBY"; ACTIVE=""
+        MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
     fi
 
-    # البحث عن ستريمر فقط إذا كنا في وضع الانتظار
+    # 1. البحث عن ستريمر (إذا كنا في وضع الانتظار)
     if [ "$MODE" = "STANDBY" ]; then
-        FOUND=$(find_live_streamer)
+        FOUND=""
+        FOUND_IDX="-1"
+        for ((i=0; i<${#STREAMERS[@]}; i++)); do
+            S=$(echo "${STREAMERS[$i]}" | xargs); [ -z "$S" ] && continue
+            URL=$(timeout 3 streamlink --http-header "User-Agent=$UA" "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
+            if [ -n "$URL" ]; then FOUND="$S"; FOUND_IDX=$i; break; fi
+        done
+
         if [ -n "$FOUND" ]; then
             echo "🎯 وجدنا: $FOUND (تبديل...)"
             kill_producer; sleep 0.1
             start_producer_live "$FOUND"
             sleep 2
             if kill -0 "$PROD" 2>/dev/null; then 
-                MODE="LIVE"; ACTIVE="$FOUND"; echo "✅ مباشر: $FOUND"
+                MODE="LIVE"; ACTIVE="$FOUND"; ACTIVE_IDX="$FOUND_IDX"; echo "✅ مباشر: $FOUND"
             else 
-                start_producer_standby; MODE="STANDBY"; ACTIVE=""
+                start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
             fi
         fi
     fi
 
-    # في وضع البث المباشر، لا نفحص الستريمر بـ streamlink عشان ما نصير نطرده بالغلط
-    # نكتفي بمراقبة إذا مات المنتج (اللي يفحصه الكود فوق)
-    
-    sleep 1
+    # 2. إذا كنا في وضع البث المباشر
+    if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
+        
+        # أ) هل الستريمر الحالي لا يزال يبث؟
+        URL=$(timeout 3 streamlink --http-header "User-Agent=$UA" "https://kick.com/$ACTIVE" best --stream-url 2>/dev/null | grep -m1 "^http")
+        if [ -z "$URL" ]; then
+            echo "⏳ توقف $ACTIVE — تحويل للانتظار..."
+            kill_producer; sleep 0.1
+            start_producer_standby
+            MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
+        
+        # ب) إذا كان لا يزال يبث، هل يوجد أحد أعلى منه أولوية بدأ يبث؟
+        else
+            if [ "$ACTIVE_IDX" -gt 0 ]; then
+                for ((i=0; i<ACTIVE_IDX; i++)); do
+                    S=$(echo "${STREAMERS[$i]}" | xargs)
+                    CHECK_URL=$(timeout 2 streamlink --http-header "User-Agent=$UA" "https://kick.com/$S" best --stream-url 2>/dev/null | grep -m1 "^http")
+                    if [ -n "$CHECK_URL" ]; then
+                        echo "🚀 ستريمر أعلى أولوية بدأ البث: $S (تحويل فوري...)"
+                        kill_producer; sleep 0.1
+                        start_producer_live "$S"
+                        sleep 2
+                        if kill -0 "$PROD" 2>/dev/null; then 
+                            MODE="LIVE"; ACTIVE="$S"; ACTIVE_IDX=$i
+                        else 
+                            start_producer_standby; MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
+                        fi
+                        break
+                    fi
+                done
+            fi
+        fi
+    fi
+
+    sleep 2
 done
