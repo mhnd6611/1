@@ -6,11 +6,14 @@ on:
       restream_key:
         required: false
         default: 're_12543719_eventca388e3ddc2945abbf124f081e81fe78'
-  # تم حذف الـ cron لمنع تضارب السيرفرات
 
 permissions:
   actions: write
   contents: read
+
+concurrency:
+  group: respect-broadcast
+  cancel-in-progress: true
 
 jobs:
   broadcast:
@@ -21,19 +24,12 @@ jobs:
       - name: جلب الملفات
         uses: actions/checkout@v4
 
-      - name: تخزين مؤقت للـ pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-pillow-respect-v2
-
       - name: تثبيت الأدوات
         run: |
           set -e
-          echo "═══ التثبيت ═══"
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -qq
-          timeout 300 sudo apt-get install -y --no-install-recommends ffmpeg fontconfig libraqm0 libfribidi0
+          timeout 300 sudo apt-get install -y --no-install-recommends ffmpeg fontconfig libraqm0 libfribidi0 jq
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
           
           mkdir -p ~/.fonts
