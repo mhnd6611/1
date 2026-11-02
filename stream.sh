@@ -81,11 +81,11 @@ start_producer_standby() {
     PROD=$!
 }
 
-# 5. البث المباشر
+# 5. البث المباشر (تم تعديل الجودة هنا لتصبح -c copy)
 start_producer_live() {
     setsid bash -c "streamlink --http-header 'User-Agent=$UA' 'https://kick.com/$1' best --stdout 2>/dev/null | \
         ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
-        -i pipe:0 -c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 -f mpegts '$FIFO' >/tmp/prod.log 2>&1" &
+        -i pipe:0 -c copy -f mpegts '$FIFO' >/tmp/prod.log 2>&1" &
     PROD=$!
 }
 
