@@ -47,7 +47,7 @@ except Exception as e: print(e)
 bg.save(f"{WORKDIR}/bg.png")
 PYEOF
     WORKDIR="$WORKDIR" STREAMERS_LIST="$STREAMERS_LIST" python3 /tmp/make_ui.py
-    ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 -c:a aac -ar 44100 -ac 2 -shortest -f mpegts "$WORKDIR/standby.ts"
+    ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" -f lavfi -i "anullsrc=r=48000:cl=stereo" -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 -c:a aac -ar 48000 -ac 2 -shortest -f mpegts "$WORKDIR/standby.ts"
 fi
 
 # 2. إعداد الأنبوب
@@ -63,11 +63,13 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# 3. المخرج (OUT)
+# 3. المخرج (OUT) - إصلاح هندسي كامل للصوت
 start_output() {
     ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 \
         -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
-        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
+        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy \
+        -c:a aac -b:a 192k -ar 48000 -ac 2 \
+        -af "aresample=async=1:min_hard_comp=0.100,highpass=f=90,loudnorm=I=-16:TP=-1.5:LRA=11" \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize -rtmp_live live \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
@@ -81,7 +83,7 @@ start_producer_standby() {
     PROD=$!
 }
 
-# 5. البث المباشر (تم تعديل الجودة هنا لتصبح -c copy)
+# 5. البث المباشر
 start_producer_live() {
     setsid bash -c "streamlink --http-header 'User-Agent=$UA' 'https://kick.com/$1' best --stdout 2>/dev/null | \
         ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
