@@ -107,12 +107,13 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # ═══════════════════════════════════════════════════
-#  3. دوال الإخراج والبث
+#  3. دوال الإخراج والبث (تم إصلاح الصوت هنا)
 # ═══════════════════════════════════════════════════
 start_output() {
     ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 \
         -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
-        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
+        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy \
+        -c:a aac -b:a 192k -ar 48000 -ac 2 -af "aresample=async=1" \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize -rtmp_live live \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
