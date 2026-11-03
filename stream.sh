@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  Respect Broadcast — Smart Priority Architecture
+#  Respect Broadcast — Smart Priority + Infinite Chain
 # ═══════════════════════════════════════════════════
 
 STREAMERS_LIST="${STREAMERS_LIST:-drb7h,S5B,ABO8ALYY,ID7O,F1AISAL,xmusabrt,TAF86,abo_khrbaa,Peerless,Seagull,iMonkey_D,FHLWY,Hook,okb8,wolf,NASSER,Aymnalsatam,BoQamar,NEFOXD,RAYN,xya7ya,W1pey,AL_Hashidi,moustache,ALRND,klash,OGxHusni,Sayko_911,ZAiKRx}"
@@ -16,10 +16,53 @@ RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 FIFO="/tmp/relay.ts"
 WORKDIR="/tmp/respect_ui"
 
+# إعدادات التوقيت للسلسلة اللانهائية
+MAX_STREAM_SEC=19800      # 330 دقيقة = 5.5 ساعات (وقت الخروج)
+TRIGGER_AT_SEC=18000      # 300 دقيقة = 5 ساعات (وقت إطلاق الرن التالي)
+START_TS=$(date +%s)
+
 IFS=',' read -r -a STREAMERS <<< "$STREAMERS_LIST"
 mkdir -p "$WORKDIR"
 
-# 1. توليد شاشة الانتظار (بدون مربعات بيضاء)
+# ═══════════════════════════════════════════════════
+#  1. نظام المراقبة (Watchdog) 
+# ═══════════════════════════════════════════════════
+API_BASE="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs"
+
+get_active_runs() {
+    curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${API_BASE}?per_page=30" | \
+    jq -r --arg self "$GITHUB_RUN_ID" \
+      '.workflow_runs[]? | select(.id != ($self|tonumber)) | select(.status == "in_progress" or .status == "queued" or .status == "waiting") | "\(.id):\(.event):\(.status)"' \
+      2>/dev/null || true
+}
+
+count_chain() {
+    echo "$1" | grep ":repository_dispatch:" | wc -l | tr -d ' '
+}
+
+if [ "${TRIGGER_TYPE}" != "repository_dispatch" ]; then
+    INITIAL=$(get_active_runs)
+    if [ "$(count_chain "$INITIAL")" -gt 0 ]; then
+        echo "[$(date)] هناك سلسلة نشطة بالفعل. سيتم الإلغاء لتجنب التكرار."
+        exit 0
+    fi
+fi
+
+echo "[$(date)] جاري فحص الرنات السابقة..."
+while true; do
+    ACTIVE=$(get_active_runs)
+    if [ -z "$ACTIVE" ]; then
+        echo "[$(date)] لا يوجد رن نشط. بدء البث الآن."
+        break
+    fi
+    sleep 3
+done
+
+# ═══════════════════════════════════════════════════
+#  2. إعداد شاشة الانتظار والأنبوب
+# ═══════════════════════════════════════════════════
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تجهيز شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
@@ -50,12 +93,12 @@ PYEOF
     ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" -f lavfi -i "anullsrc=r=48000:cl=stereo" -t 4 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 -c:a aac -ar 48000 -ac 2 -shortest -f mpegts "$WORKDIR/standby.ts"
 fi
 
-# 2. إعداد الأنبوب
 rm -f "$FIFO"
 mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
 cleanup() {
+    echo "[$(date)] تنظيف وإغلاق..."
     kill -TERM "$OUT" 2>/dev/null
     kill -TERM -- -"$PROD" 2>/dev/null
     pkill -f streamlink 2>/dev/null
@@ -63,27 +106,25 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# 3. المخرج (OUT) - إصلاح هندسي كامل للصوت
+# ═══════════════════════════════════════════════════
+#  3. دوال الإخراج والبث
+# ═══════════════════════════════════════════════════
 start_output() {
     ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 \
         -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
-        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy \
-        -c:a aac -b:a 192k -ar 48000 -ac 2 \
-        -af "aresample=async=1:min_hard_comp=0.100,highpass=f=90,loudnorm=I=-16:TP=-1.5:LRA=11" \
+        -f mpegts -i "$FIFO" -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize -rtmp_live live \
         -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
     OUT=$!
     sleep 3
 }
 
-# 4. شاشة الانتظار
 start_producer_standby() {
     setsid ffmpeg -y -hide_banner -loglevel warning -nostdin -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
         -c copy -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
     PROD=$!
 }
 
-# 5. البث المباشر
 start_producer_live() {
     setsid bash -c "streamlink --http-header 'User-Agent=$UA' 'https://kick.com/$1' best --stdout 2>/dev/null | \
         ffmpeg -y -hide_banner -loglevel warning -nostdin -thread_queue_size 1024 -fflags +genpts+igndts+discardcorrupt -err_detect ignore_err \
@@ -100,8 +141,27 @@ kill_producer() {
     PROD=""
 }
 
+trigger_next() {
+    echo "[$(date)] جاري إطلاق الرن التالي في الخلفية..."
+    for attempt in $(seq 1 10); do
+        CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d "{\"event_type\":\"chain-trigger\",\"client_payload\":{\"parent_run\":\"${GITHUB_RUN_ID}\",\"restream_key\":\"${RESTREAM_KEY}\"}}")
+        if [ "$CODE" = "204" ]; then
+            echo "[$(date)] تم إطلاق الرن التالي بنجاح."
+            return 0
+        fi
+        echo "[$(date)] فشل الإطلاق (HTTP=$CODE). محاولة $attempt..."
+        sleep 10
+    done
+    return 1
+}
+
 # ═══════════════════════════════════════════════════
-#  التشغيل الرئيسي
+#  4. التشغيل الرئيسي
 # ═══════════════════════════════════════════════════
 echo "🚀 بدء التشغيل..."
 start_producer_standby
@@ -111,20 +171,35 @@ start_output
 MODE="STANDBY"
 ACTIVE=""
 ACTIVE_IDX="-1"
+TRIGGER_ATTEMPTED=0
+TRIGGER_PID=""
 
 while true; do
-    # التأكد من المخرج
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - START_TS))
+
+    # الخروج عند الوصول للحد الأقصى (5.5 ساعات)
+    if [ "$ELAPSED" -ge "$MAX_STREAM_SEC" ]; then
+        echo "[$(date)] وصلنا للحد الأقصى (5.5 ساعات). تسليم المهمة للرن التالي."
+        break
+    fi
+
+    # إطلاق الرن التالي عند الدقيقة 300 (5 ساعات)
+    if [ "$TRIGGER_ATTEMPTED" -eq 0 ] && [ "$ELAPSED" -ge "$TRIGGER_AT_SEC" ]; then
+        TRIGGER_ATTEMPTED=1
+        trigger_next &
+        TRIGGER_PID=$!
+    fi
+
     if ! kill -0 "$OUT" 2>/dev/null; then
         start_output
     fi
 
-    # التأكد من المنتج
     if ! kill -0 "$PROD" 2>/dev/null; then
         start_producer_standby
         MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
     fi
 
-    # 1. البحث عن ستريمر (إذا كنا في وضع الانتظار)
     if [ "$MODE" = "STANDBY" ]; then
         FOUND=""
         FOUND_IDX="-1"
@@ -147,18 +222,13 @@ while true; do
         fi
     fi
 
-    # 2. إذا كنا في وضع البث المباشر
     if [ "$MODE" = "LIVE" ] && [ -n "$ACTIVE" ]; then
-        
-        # أ) هل الستريمر الحالي لا يزال يبث؟
         URL=$(timeout 3 streamlink --http-header "User-Agent=$UA" "https://kick.com/$ACTIVE" best --stream-url 2>/dev/null | grep -m1 "^http")
         if [ -z "$URL" ]; then
             echo "⏳ توقف $ACTIVE — تحويل للانتظار..."
             kill_producer; sleep 0.1
             start_producer_standby
             MODE="STANDBY"; ACTIVE=""; ACTIVE_IDX="-1"
-        
-        # ب) إذا كان لا يزال يبث، هل يوجد أحد أعلى منه أولوية بدأ يبث؟
         else
             if [ "$ACTIVE_IDX" -gt 0 ]; then
                 for ((i=0; i<ACTIVE_IDX; i++)); do
@@ -183,3 +253,13 @@ while true; do
 
     sleep 2
 done
+
+if [ -n "$TRIGGER_PID" ]; then
+    wait "$TRIGGER_PID" 2>/dev/null || true
+fi
+
+if [ "$TRIGGER_ATTEMPTED" -eq 0 ]; then
+    trigger_next || echo "[$(date)] فشل إطلاق الرن الأخير! النظام سيعتمد على الكرون."
+fi
+
+cleanup
