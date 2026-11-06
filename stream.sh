@@ -3,7 +3,7 @@ set +m
 set -uo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-#  Single Streamer Relay — V12.2 (Clean + 20m Timeout)
+#  Single Streamer Relay — V12.3 (Anti Restart Loop Fix)
 # ═══════════════════════════════════════════════════════════════
 
 STREAMER_EN="${STREAMER_EN:-DRB7H}"
@@ -188,6 +188,7 @@ start_output_with_retry() {
             -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
             -max_muxing_queue_size 4096 \
             -flvflags no_duration_filesize \
+            -rtmp_live live \
             -progress /tmp/out.prog -stats_period 1 \
             -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
         OUT=$!
@@ -299,7 +300,7 @@ fi
 # ───────────────────────────────────────────────
 #  Boot
 # ───────────────────────────────────────────────
-echo "🚀 Single Streamer Relay V12.2 starting..."
+echo "🚀 Single Streamer Relay V12.3 starting..."
 setup_fifo
 start_output_with_retry || { echo "❌ FATAL: initial connect failed"; exit 1; }
 start_keeper || { echo "❌ FATAL: keeper failed"; exit 1; }
@@ -338,30 +339,32 @@ while true; do
         continue
     fi
 
-    if [ $((NOW - OUT_STARTED)) -ge 15 ]; then
+    # Watchdog: Output stall (Grace period 20s)
+    if [ $((NOW - OUT_STARTED)) -ge 20 ]; then
         F=$(get_frame /tmp/out.prog)
-        MT=$(stat -c %Y /tmp/out.prog 2>/dev/null || echo 0)
-        if [ $((NOW - MT)) -ge 15 ]; then OUT_STALL=15; 
+        MT=$(stat -c %Y /tmp/out.prog 2>/dev/null || echo $OUT_STARTED)
+        if [ $((NOW - MT)) -ge 20 ]; then OUT_STALL=20; 
         elif [[ "$F" =~ ^[0-9]+$ ]]; then
             if [ -n "$OUT_PREV_FRAME" ] && [ "$F" -le "$OUT_PREV_FRAME" ]; then OUT_STALL=$((OUT_STALL + 1)); else OUT_STALL=0; fi
             OUT_PREV_FRAME="$F"
         fi
-        if [ "$OUT_STALL" -ge 15 ]; then
+        if [ "$OUT_STALL" -ge 20 ]; then
             echo "⚠️ Output stalled"
             restart_output_chain
             continue
         fi
     fi
 
+    # Watchdog: Producer stall (Grace period 15s)
     if [ $((NOW - PROD_STARTED)) -ge 15 ]; then
         F=$(get_frame /tmp/prod.prog)
-        MT=$(stat -c %Y /tmp/prod.prog 2>/dev/null || echo 0)
-        if [ $((NOW - MT)) -ge 12 ]; then PROD_STALL=12;
+        MT=$(stat -c %Y /tmp/prod.prog 2>/dev/null || echo $PROD_STARTED)
+        if [ $((NOW - MT)) -ge 15 ]; then PROD_STALL=15;
         elif [[ "$F" =~ ^[0-9]+$ ]]; then
             if [ -n "$PROD_PREV_FRAME" ] && [ "$F" -le "$PROD_PREV_FRAME" ]; then PROD_STALL=$((PROD_STALL + 1)); else PROD_STALL=0; fi
             PROD_PREV_FRAME="$F"
         fi
-        if [ "$PROD_STALL" -ge 12 ]; then
+        if [ "$PROD_STALL" -ge 15 ]; then
             echo "⚠️ Producer stalled"
             stop_producer
             if is_streamer_live; then OFFLINE_START=0; start_prod_live || start_prod_standby
