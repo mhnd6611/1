@@ -1,5 +1,12 @@
 name: Single Streamer 24-7
 
+# ⬇️⬇️⬇️ المكان الوحيد اللي تعدل فيه ⬇️⬇️⬇️
+env:
+  RESTREAM_KEY: 're_12394050_event67e185b829014094a368d4e64b5c4241'
+  STREAMER_EN: 'DRB7H'      # يوزر الستريمر في كيك
+  STREAMER_AR: 'دربحه'      # الاسم اللي يطلع في شاشة الانتظار
+# ⬆️⬆️⬆️ المكان الوحيد اللي تعدل فيه ⬆️⬆️⬆️
+
 on:
   workflow_dispatch:
     inputs:
@@ -40,21 +47,13 @@ jobs:
           fc-cache -f >/dev/null 2>&1 || true
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # 1. نجهز شاشة الانتظار بينما الرون القديم لا يزال يبث (فجوة 0)
       - name: Pre-build standby
-        env:
-          STREAMER_EN: 'DRB7H'      # <--- غير اسم الستريمر الانجليزي هنا
-          STREAMER_AR: 'دربحه'      # <--- غير اسم الستريمر العربي هنا
         run: |
           chmod +x stream.sh
           PREPARE_ONLY=1 ./stream.sh
 
-      # 2. نقتل الرون القديم ونشغل البث الجديد فوراً
       - name: Takeover & broadcast
         env:
-          RESTREAM_KEY: 're_12215822_event7443f45547114c8aaf6a9153b0da6831'
-          STREAMER_EN: 'DRB7H'      # <--- تأكد انه مطابق للاعلى
-          STREAMER_AR: 'دربحه'      # <--- تأكد انه مطابق للاعلى
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PARENT_RUN_ID: ${{ inputs.parent_run_id }}
           MY_RUN_ID: ${{ github.run_id }}
