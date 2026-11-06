@@ -3,7 +3,7 @@ set +m
 set -uo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-#  Single Streamer Relay — V12 (20m Timeout + Infinite Chain)
+#  Single Streamer Relay — V12.2 (Clean + 20m Timeout)
 # ═══════════════════════════════════════════════════════════════
 
 STREAMER_EN="${STREAMER_EN:-DRB7H}"
@@ -65,7 +65,6 @@ for y in range(0, H, 100):
     gd.line([(0,y),(W,y)], fill=(166,77,255,15), width=1)
 bg = Image.alpha_composite(bg.convert("RGBA"), grid)
 
-# English Name (Big)
 f_en = font(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 140, 900)
 t_img = Image.new("RGBA", (W, H), (0,0,0,0))
 ImageDraw.Draw(t_img).text((W//2, 400), NAME_EN,
@@ -73,12 +72,10 @@ ImageDraw.Draw(t_img).text((W//2, 400), NAME_EN,
 bg = Image.alpha_composite(bg, t_img.filter(ImageFilter.GaussianBlur(20)))
 bg = Image.alpha_composite(bg, t_img)
 
-# Arabic Name (Medium)
 f_ar = font(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 80, 700)
 ImageDraw.Draw(bg).text((W//2, 530), NAME_AR,
                         font=f_ar, fill=(255,255,255,255), anchor="mm")
 
-# Waiting Text
 f_wait = font(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 50, 500)
 ImageDraw.Draw(bg).text((W//2, 650), "جاري انتظار بث الستريمر...",
                         font=f_wait, fill=(180,180,180,255), anchor="mm")
@@ -302,7 +299,7 @@ fi
 # ───────────────────────────────────────────────
 #  Boot
 # ───────────────────────────────────────────────
-echo "🚀 Single Streamer Relay V12 starting..."
+echo "🚀 Single Streamer Relay V12.2 starting..."
 setup_fifo
 start_output_with_retry || { echo "❌ FATAL: initial connect failed"; exit 1; }
 start_keeper || { echo "❌ FATAL: keeper failed"; exit 1; }
@@ -317,19 +314,17 @@ fi
 LAST_SCAN=$(date +%s)
 
 # ───────────────────────────────────────────────
-#  Main loop
+#  Main loop (Watchdog + 20m Timeout)
 # ───────────────────────────────────────────────
 while true; do
     NOW=$(date +%s)
 
-    # Watchdog: Output
     if ! kill -0 "$OUT" 2>/dev/null; then
         echo "⚠️ Output died"
         restart_output_chain
         continue
     fi
 
-    # Watchdog: Producer
     if ! kill -0 "$PROD" 2>/dev/null; then
         echo "⚠️ Producer died"
         stop_producer
@@ -343,7 +338,6 @@ while true; do
         continue
     fi
 
-    # Watchdog: Stalls
     if [ $((NOW - OUT_STARTED)) -ge 15 ]; then
         F=$(get_frame /tmp/out.prog)
         MT=$(stat -c %Y /tmp/out.prog 2>/dev/null || echo 0)
@@ -376,7 +370,6 @@ while true; do
         fi
     fi
 
-    # Streamer Status & 20m Timeout (Check every 15s)
     if [ $((NOW - LAST_SCAN)) -ge 15 ]; then
         LAST_SCAN=$NOW
         if is_streamer_live; then
@@ -394,7 +387,6 @@ while true; do
                 OFFLINE_START=$NOW
             fi
             
-            # 20 Minutes Timeout Logic
             if [ "$OFFLINE_START" -gt 0 ]; then
                 OFFLINE_DURATION=$((NOW - OFFLINE_START))
                 if [ "$OFFLINE_DURATION" -ge 1200 ]; then
