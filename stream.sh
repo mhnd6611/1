@@ -3,7 +3,7 @@ set +m
 set -uo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-#  Single Streamer Relay — V12.3 (Anti Restart Loop Fix)
+#  Single Streamer Relay — V13 (Anti-Ban Standby + Live Motion)
 # ═══════════════════════════════════════════════════════════════
 
 STREAMER_EN="${STREAMER_EN:-DRB7H}"
@@ -17,10 +17,10 @@ mkdir -p "$WORKDIR"
 export STREAMER_EN STREAMER_AR WORKDIR
 
 # ───────────────────────────────────────────────
-#  Standby screen generation
+#  Anti-Ban Standby Generation
 # ───────────────────────────────────────────────
 generate_standby() {
-    echo "🎨 Generating standby screen for $STREAMER_EN ($STREAMER_AR)..."
+    echo "🎨 Generating animated standby screen for $STREAMER_EN ($STREAMER_AR)..."
     mkdir -p ~/.fonts
     [ ! -s ~/.fonts/Cairo-var.ttf ] && curl -sL --max-time 30 \
         "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" \
@@ -30,6 +30,7 @@ generate_standby() {
         -o ~/.fonts/Orbitron-var.ttf || true
     fc-cache -f >/dev/null 2>&1 || true
 
+    # 1. رسم الخلفية الأساسية (بدون نصوص متحركة)
     cat > /tmp/make_ui.py <<'PYEOF'
 import os
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -76,22 +77,29 @@ f_ar = font(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 80, 700)
 ImageDraw.Draw(bg).text((W//2, 530), NAME_AR,
                         font=f_ar, fill=(255,255,255,255), anchor="mm")
 
-f_wait = font(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 50, 500)
-ImageDraw.Draw(bg).text((W//2, 650), "جاري انتظار بث الستريمر...",
-                        font=f_wait, fill=(180,180,180,255), anchor="mm")
-
 bg.convert("RGB").save(os.path.join(WORKDIR, "bg.png"), "PNG")
 PYEOF
 
     WORKDIR="$WORKDIR" python3 /tmp/make_ui.py || return 1
 
+    echo "🎬 Rendering motion video (60s loop)..."
+    # 2. تحويل الصورة إلى فيديو فيه حركة، مؤقت، نص متحرك، وصوت
+    # zoompan: حركة الزووم البطيئة
+    # pts:hms: مؤقت يتحرك بالثواني
+    # x=w-mod(t*150,w+tw): نص يتحرك من اليمين لليسار
+    # anoisesrc: صوت وشوشة خفيفة
     ffmpeg -y -hide_banner -loglevel warning \
         -loop 1 -framerate 60 -i "$WORKDIR/bg.png" \
-        -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 4 \
-        -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 120 -r 60 \
+        -f lavfi -i "anoisesrc=c=brown:r=44100:a=0.05" \
+        -filter_complex "[0:v]scale=3840:2160,zoompan=z='min(zoom+0.0005,1.2)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=3600:s=1920x1080:fps=60[v0]; \
+                         [v0]drawtext=fontfile=$HOME/.fonts/Orbitron-var.ttf:text='%{pts\\:hms}':x=w-tw-60:y=60:fontsize=60:fontcolor=white@0.8[v1]; \
+                         [v1]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='جاري انتظار بث الستريمر...':x=w-mod(t*150\\,w+tw):y=h-150:fontsize=60:fontcolor=white[v]" \
+        -map "[v]" -map 1:a \
+        -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 120 -r 60 \
         -c:a aac -b:a 128k -ar 44100 -ac 2 -shortest \
         -f mpegts "$WORKDIR/standby.ts" || return 1
-    echo "✅ Standby ready"
+        
+    echo "✅ Animated Standby ready"
     return 0
 }
 
@@ -300,7 +308,7 @@ fi
 # ───────────────────────────────────────────────
 #  Boot
 # ───────────────────────────────────────────────
-echo "🚀 Single Streamer Relay V12.3 starting..."
+echo "🚀 Single Streamer Relay V13 starting..."
 setup_fifo
 start_output_with_retry || { echo "❌ FATAL: initial connect failed"; exit 1; }
 start_keeper || { echo "❌ FATAL: keeper failed"; exit 1; }
