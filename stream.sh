@@ -6,8 +6,8 @@ set -uo pipefail
 #  Single Streamer Relay — V13 (Anti-Ban Standby + Live Motion)
 # ═══════════════════════════════════════════════════════════════
 
-STREAMER_EN="${STREAMER_EN:-S5B}"
-STREAMER_AR="${STREAMER_AR:-صخب}"
+STREAMER_EN="${STREAMER_EN:-Imonkey_d}"
+STREAMER_AR="${STREAMER_AR:-مونكي}"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 WORKDIR="/tmp/standby_relay"
