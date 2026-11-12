@@ -11,11 +11,10 @@ SUBTITLE_AR="بث شونق سابثون 30 يوم!"
 LOGO_URL="https://cdn.imagetourls.com/uploads/tyImg/FoLz2RXV.png"
 ACCOUNT_NAME="Slayer_RT"
 CLIP_URL="https://www.image2url.com/r2/default/audio/1794504710389-f7679c92-16cb-475d-9cd8-c6e9796dbd69.mp3"
-CLIP_INTERVAL=360      # كل 6 دقائق
-CLIP_VOLUME=0.65       # مستوى صوت المقطع
+CLIP_INTERVAL=360      
+CLIP_VOLUME=0.75 
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-# المفتاح الجديد
 RESTREAM_KEY="${RESTREAM_KEY:-re_12215822_event7443f45547114c8aaf6a9153b0da6831}"
 [ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح Restream فارغ"; exit 1; }
 
@@ -23,7 +22,7 @@ RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
 
-# ── 1) شاشة الانتظار (1080x1920 عمودي) ──
+# ── 1) شاشة الانتظار ──
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
@@ -102,7 +101,7 @@ PYEOF
         -f mpegts "$WORKDIR/standby.ts"
 fi
 
-# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) ──
+# ── 2) صورة التراكب ──
 if [ ! -f "$WORKDIR/overlay.png" ]; then
     echo "🎨 تصميم التراكب..."
     cat > /tmp/make_overlay.py <<'PYEOF'
@@ -162,7 +161,7 @@ PYEOF
     LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" WORKDIR="$WORKDIR" python3 /tmp/make_overlay.py
 fi
 
-# ── 3) بناء المقطع الصوتي الدوري (يبدأ بالثانية 45 ثم يتكرر كل 6 دقائق) ──
+# ── 3) المقطع الصوتي ──
 if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
     if [ -n "$CLIP_URL" ]; then
         echo "🎵 تحميل المقطع الصوتي..."
@@ -178,7 +177,6 @@ if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
         
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$LEAD_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_lead.wav"
-            
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$TAIL_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_tail.wav"
             
@@ -189,16 +187,13 @@ if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
 [2:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a2];\
 [a0][a1][a2]concat=n=3:v=0:a=1[out]" \
             -map "[out]" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
-            
-        echo "✅ المقطع الدوري جاهز (يبدأ بالثانية 45 ثم يتكرر كل $CLIP_INTERVAL ثانية)"
     else
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$CLIP_INTERVAL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
-        echo "ℹ️ لا يوجد CLIP_URL — سيتم تجاوز المقطع الصوتي"
     fi
 fi
 
-# ── 4) تسليم/تسلّم مع الرنات القديمة ──
+# ── 4) تسليم/تسلّم ──
 echo "🔍 البحث عن رنات قديمة..."
 OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId \
            --jq '.[].databaseId' 2>/dev/null | awk -v m="$GITHUB_RUN_ID" '$1 != m')
@@ -213,8 +208,9 @@ fi
 # ── 5) دوال البث ──
 stream_live() {
     echo "🔴 بث مباشر: $STREAMER (جودة قصوى 1080p) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
-    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout 2>/dev/null | \
-    ffmpeg -hide_banner -loglevel warning -nostdin \
+    # شلنا 2>/dev/null عشان نشوف streamlink شنو يسحب
+    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout | \
+    ffmpeg -hide_banner -loglevel warning -stats -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+discardcorrupt \
         -err_detect ignore_err \
@@ -223,7 +219,7 @@ stream_live() {
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
 [0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=fast_bilinear[bg];\
-[0:v]scale=1080:-2[fg];\
+[0:v]scale=1080:-2:flags=lanczos[fg];\
 [bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
 [base][2:v]overlay=0:0[ov];\
 [ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='%{pts\\:hms}':fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
