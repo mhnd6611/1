@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Vertical 1080x1920 + Slayer_RT
+#  SXB Broadcast — Dynamic Layout + Slayer_RT
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -207,16 +207,52 @@ fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    echo "🔴 بث مباشر: $STREAMER (جودة قصوى 1080p) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
-    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout | \
-    ffmpeg -hide_banner -loglevel warning -stats -nostdin \
-        -thread_queue_size 512 \
-        -fflags +genpts+discardcorrupt \
-        -err_detect ignore_err \
-        -i pipe:0 \
-        -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
-        -i "$WORKDIR/overlay.png" \
-        -filter_complex "\
+    # جلب رابط البث المباشر أولاً عشان نفحص أبعاده
+    LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
+    [ -z "$LIVE_URL" ] && return
+
+    # فحص الأبعاد
+    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$LIVE_URL" 2>/dev/null)
+    WIDTH=$(echo $RES | cut -d'x' -f1)
+    HEIGHT=$(echo $RES | cut -d'x' -f2)
+
+    if [ -z "$WIDTH" ]; then
+        # إذا فشل الفحص، نستخدم الوضع الطولي كافتراضي
+        WIDTH=1920; HEIGHT=1080
+    fi
+
+    echo "🔴 بث مباشر: $STREAMER — الأبعاد: ${WIDTH}x${HEIGHT} — مقطع كل $CLIP_INTERVAL ث"
+
+    if [ "$WIDTH" -gt "$HEIGHT" ]; then
+        # ═══ الوضع العرضي (Landscape) ═══
+        echo "📺 بث عرضي: سيتم عرض البث فقط بدون تراكبات."
+        ffmpeg -hide_banner -loglevel warning -stats -nostdin \
+            -thread_queue_size 512 -fflags +genpts+discardcorrupt -err_detect ignore_err \
+            -i "$LIVE_URL" \
+            -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
+            -filter_complex "\
+[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black[outv];\
+[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
+[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
+[clip]asplit=2[clip_sc][clip_mix];\
+[game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
+[game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
+            -map "[outv]" -map "[outa]" \
+            -c:v libx264 -preset faster -threads 0 \
+            -b:v 6000k -maxrate 6000k -bufsize 12000k \
+            -pix_fmt yuv420p -g 60 -r 30 \
+            -c:a aac -b:a 160k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+            -f flv "$RESTREAM_URL"
+    else
+        # ═══ الوضع الطولي (Portrait) ═══
+        echo "📱 بث طولي: سيتم إضافة الشعار والعداد والخلفية السوداء."
+        ffmpeg -hide_banner -loglevel warning -stats -nostdin \
+            -thread_queue_size 512 -fflags +genpts+discardcorrupt -err_detect ignore_err \
+            -i "$LIVE_URL" \
+            -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
+            -i "$WORKDIR/overlay.png" \
+            -filter_complex "\
 color=c=black:s=1080x1920[bg];\
 [0:v]scale=1080:-2:flags=lanczos[fg];\
 [bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
@@ -227,13 +263,14 @@ color=c=black:s=1080x1920[bg];\
 [clip]asplit=2[clip_sc][clip_mix];\
 [game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
 [game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
-        -map "[outv]" -map "[outa]" \
-        -c:v libx264 -preset faster -threads 0 \
-        -b:v 6000k -maxrate 6000k -bufsize 12000k \
-        -pix_fmt yuv420p -g 60 -r 30 \
-        -c:a aac -b:a 160k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
-        -f flv "$RESTREAM_URL"
+            -map "[outv]" -map "[outa]" \
+            -c:v libx264 -preset faster -threads 0 \
+            -b:v 6000k -maxrate 6000k -bufsize 12000k \
+            -pix_fmt yuv420p -g 60 -r 30 \
+            -c:a aac -b:a 160k -ar 44100 -ac 2 \
+            -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+            -f flv "$RESTREAM_URL"
+    fi
 }
 
 stream_standby() {
@@ -246,15 +283,10 @@ stream_standby() {
 # ── 6) الحلقة الرئيسية ──
 echo "🚀 بدء المراقبة..."
 while true; do
-    URL=$(timeout 10 streamlink --http-header "User-Agent=$UA" \
-          "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
-    if [ -n "$URL" ]; then
-        stream_live
-        echo "⚠️ انقطع البث. إعادة الفحص بعد 5 ثوانٍ..."
-        sleep 5
-    else
+    stream_live
+    if [ $? -ne 0 ]; then
         stream_standby
-        echo "⚠️ شاشة الانتظار انقطعت. إعادة الفحص..."
-        sleep 5
     fi
+    echo "⚠️ انقطع البث. إعادة الفحص بعد 5 ثوانٍ..."
+    sleep 5
 done
