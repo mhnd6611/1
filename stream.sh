@@ -1,412 +1,250 @@
 #!/bin/bash
 set +m
-set -uo pipefail
 
-# ═══════════════════════════════════════════════════════════════
-#  Single Streamer Relay — V13 (Anti-Ban Standby + Live Motion)
-# ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
+#  SXB Broadcast — Vertical 1080x1920 + Slayer_RT
+# ═══════════════════════════════════════════════════
 
-STREAMER_EN="${STREAMER_EN:-Imonkey_d}"
-STREAMER_AR="${STREAMER_AR:-مونكي}"
+STREAMER="SXB"
+TITLE_AR="توقف البث من شونق"
+SUBTITLE_AR="بث شونق سابثون 30 يوم!"
+LOGO_URL="https://cdn.imagetourls.com/uploads/tyImg/FoLz2RXV.png"
+ACCOUNT_NAME="Slayer_RT"
+CLIP_URL="https://www.image2url.com/r2/default/audio/1794504710389-f7679c92-16cb-475d-9cd8-c6e9796dbd69.mp3"
+CLIP_INTERVAL=360      # كل 6 دقائق
+CLIP_VOLUME=0.75       # مستوى صوت المقطع (اللعبة لا تتأثر)
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-WORKDIR="/tmp/standby_relay"
-FIFO="/tmp/relay.ts"
-KEEPER_READY="/tmp/relay_keeper.ready"
+RESTREAM_KEY="${RESTREAM_KEY:-re_12552561_event81737fba9ada4713ab13ad7e04a36880}"
+[ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح Restream فارغ"; exit 1; }
+
+RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
+WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
-export STREAMER_EN STREAMER_AR WORKDIR
 
-# ───────────────────────────────────────────────
-#  Anti-Ban Standby Generation
-# ───────────────────────────────────────────────
-generate_standby() {
-    echo "🎨 Generating animated standby screen for $STREAMER_EN ($STREAMER_AR)..."
-    mkdir -p ~/.fonts
-    [ ! -s ~/.fonts/Cairo-var.ttf ] && curl -sL --max-time 30 \
-        "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" \
-        -o ~/.fonts/Cairo-var.ttf || true
-    [ ! -s ~/.fonts/Orbitron-var.ttf ] && curl -sL --max-time 30 \
-        "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf" \
-        -o ~/.fonts/Orbitron-var.ttf || true
-    fc-cache -f >/dev/null 2>&1 || true
-
-    # 1. رسم الخلفية الأساسية (بدون نصوص متحركة)
+# ── 1) شاشة الانتظار (1080x1920 عمودي) ──
+if [ ! -f "$WORKDIR/standby.ts" ]; then
+    echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
-import os
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import urllib.request, io, os
+W, H = 1080, 1920
+WORKDIR = os.environ["WORKDIR"]
+FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
+FONT_EN = os.path.expanduser("~/.fonts/Orbitron-var.ttf")
+TITLE = os.environ.get("TITLE_AR", "توقف البث")
+SUBTITLE = os.environ.get("SUBTITLE_AR", "جاري الانتظار...")
+LOGO_URL = os.environ.get("LOGO_URL", "")
+ACCOUNT = os.environ.get("ACCOUNT_NAME", "Slayer_RT")
 
-W, H = 1920, 1080
-WORKDIR = os.environ.get("WORKDIR", "/tmp/standby_relay")
-NAME_EN = os.environ.get("STREAMER_EN", "STREAMER").upper()
-NAME_AR = os.environ.get("STREAMER_AR", "جاري الانتظار")
-
-def font(path, size, weight=700):
+def load_font(path, size, weight=700):
     try:
-        f = ImageFont.truetype(path, size)
-        axes = f.get_variation_axes()
-        if len(axes) == 1:
-            f.set_variation_by_axes([weight])
-        elif len(axes) == 2:
-            f.set_variation_by_axes([0, weight])
-        return f
-    except Exception:
-        return ImageFont.load_default()
+        font = ImageFont.truetype(path, size)
+        axes = font.get_variation_axes()
+        if len(axes) == 1: font.set_variation_by_axes([weight])
+        elif len(axes) == 2: font.set_variation_by_axes([0, weight])
+        return font
+    except: return ImageFont.load_default()
 
-bg = Image.new("RGB", (W, H), (10, 2, 20))
+bg = Image.new("RGB", (W, H))
 d = ImageDraw.Draw(bg)
 for y in range(H):
     t = y / H
-    d.line([(0, y), (W, y)], fill=(int(10+20*t), int(2+8*t), int(20+30*t)))
+    d.line([(0, y), (W, y)], fill=(int(30*(1-t)), 0, 0))
+glow = Image.new("RGBA", (W, H), (0,0,0,0))
+gd = ImageDraw.Draw(glow)
+gd.ellipse([W//2-500, H//2-700, W//2+500, H//2+700], fill=(255,0,0,90))
+bg = Image.alpha_composite(bg.convert("RGBA"), glow.filter(ImageFilter.GaussianBlur(250)))
 
-grid = Image.new("RGBA", (W, H), (0,0,0,0))
-gd = ImageDraw.Draw(grid)
-for x in range(0, W, 100):
-    gd.line([(x,0),(x,H)], fill=(166,77,255,15), width=1)
-for y in range(0, H, 100):
-    gd.line([(0,y),(W,y)], fill=(166,77,255,15), width=1)
-bg = Image.alpha_composite(bg.convert("RGBA"), grid)
+corner = Image.new("RGBA", (W, H), (0,0,0,0))
+cd = ImageDraw.Draw(corner)
+S = 60
+def br(cx, cy, fx, fy):
+    cd.line([(cx,cy),(cx+S*fx,cy)], fill=(255,0,0,255), width=4)
+    cd.line([(cx,cy),(cx,cy+S*fy)], fill=(255,0,0,255), width=4)
+br(30,30,1,1); br(W-30,30,-1,1); br(30,H-30,1,-1); br(W-30,H-30,-1,-1)
+bg = Image.alpha_composite(bg, corner)
 
-f_en = font(os.path.expanduser("~/.fonts/Orbitron-var.ttf"), 140, 900)
-t_img = Image.new("RGBA", (W, H), (0,0,0,0))
-ImageDraw.Draw(t_img).text((W//2, 400), NAME_EN,
-                            font=f_en, fill=(212,179,255,255), anchor="mm")
-bg = Image.alpha_composite(bg, t_img.filter(ImageFilter.GaussianBlur(20)))
-bg = Image.alpha_composite(bg, t_img)
+cw, ch = 900, 760
+cx0, cy0 = (W-cw)//2, (H-ch)//2
+card = Image.new("RGBA", (W, H), (0,0,0,0))
+ImageDraw.Draw(card).rounded_rectangle([(cx0,cy0),(cx0+cw,cy0+ch)], radius=24,
+    fill=(20,0,0,180), outline=(255,0,0,140), width=3)
+bg = Image.alpha_composite(bg, card)
 
-f_ar = font(os.path.expanduser("~/.fonts/Cairo-var.ttf"), 80, 700)
-ImageDraw.Draw(bg).text((W//2, 530), NAME_AR,
-                        font=f_ar, fill=(255,255,255,255), anchor="mm")
+y_logo_end = cy0 + 80
+try:
+    req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
+    logo = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=15).read())).convert("RGBA")
+    lw = 260; lh = int(logo.height * (lw/logo.width))
+    logo = logo.resize((lw, lh), Image.LANCZOS)
+    bg.alpha_composite(logo, ((W-lw)//2, cy0+40))
+    y_logo_end = cy0 + 40 + lh + 30
+except: pass
 
-bg.convert("RGB").save(os.path.join(WORKDIR, "bg.png"), "PNG")
+d2 = ImageDraw.Draw(bg)
+d2.text((W//2, y_logo_end+60),  TITLE,    font=load_font(FONT_AR, 82, 900),
+        fill=(255,255,255,255), anchor="mm", direction="rtl")
+d2.text((W//2, y_logo_end+170), SUBTITLE, font=load_font(FONT_AR, 42, 700),
+        fill=(255,255,255,210), anchor="mm", direction="rtl")
+d2.text((W//2, cy0+ch-100),     ACCOUNT,  font=load_font(FONT_EN, 64, 900),
+        fill=(255,0,0,255), anchor="mm")
+
+bg.convert("RGB").save(f"{WORKDIR}/bg.png")
 PYEOF
-
-    WORKDIR="$WORKDIR" python3 /tmp/make_ui.py || return 1
-
-    echo "🎬 Rendering motion video (60s loop)..."
-    # 2. تحويل الصورة إلى فيديو فيه حركة، مؤقت، نص متحرك، وصوت
-    # zoompan: حركة الزووم البطيئة
-    # pts:hms: مؤقت يتحرك بالثواني
-    # x=w-mod(t*150,w+tw): نص يتحرك من اليمين لليسار
-    # anoisesrc: صوت وشوشة خفيفة
-    ffmpeg -y -hide_banner -loglevel warning \
-        -loop 1 -framerate 60 -i "$WORKDIR/bg.png" \
-        -f lavfi -i "anoisesrc=c=brown:r=44100:a=0.05" \
-        -filter_complex "[0:v]scale=3840:2160,zoompan=z='min(zoom+0.0005,1.2)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=3600:s=1920x1080:fps=60[v0]; \
-                         [v0]drawtext=fontfile=$HOME/.fonts/Orbitron-var.ttf:text='%{pts\\:hms}':x=w-tw-60:y=60:fontsize=60:fontcolor=white@0.8[v1]; \
-                         [v1]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='جاري انتظار بث الستريمر...':x=w-mod(t*150\\,w+tw):y=h-150:fontsize=60:fontcolor=white[v]" \
-        -map "[v]" -map 1:a \
-        -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 120 -r 60 \
+    WORKDIR="$WORKDIR" ACCOUNT_NAME="$ACCOUNT_NAME" TITLE_AR="$TITLE_AR" \
+    SUBTITLE_AR="$SUBTITLE_AR" LOGO_URL="$LOGO_URL" python3 /tmp/make_ui.py
+    ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" \
+        -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 4 \
+        -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 60 -r 30 \
         -c:a aac -b:a 128k -ar 44100 -ac 2 -shortest \
-        -f mpegts "$WORKDIR/standby.ts" || return 1
-        
-    echo "✅ Animated Standby ready"
-    return 0
-}
-
-if [ "${PREPARE_ONLY:-0}" = "1" ]; then
-    generate_standby
-    exit $?
+        -f mpegts "$WORKDIR/standby.ts"
 fi
 
-RESTREAM_KEY="${RESTREAM_KEY:-}"
-[ -z "$RESTREAM_KEY" ] && { echo "❌ RESTREAM_KEY empty"; exit 1; }
-RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
+# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) ──
+if [ ! -f "$WORKDIR/overlay.png" ]; then
+    echo "🎨 تصميم التراكب..."
+    cat > /tmp/make_overlay.py <<'PYEOF'
+from PIL import Image, ImageDraw, ImageFont
+import urllib.request, io, os
+W, H = 1080, 1920
+LOGO_URL = os.environ["LOGO_URL"]
+ACCOUNT = os.environ.get("ACCOUNT_NAME", "Slayer_RT")
+FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
+FONT_EN = os.path.expanduser("~/.fonts/Orbitron-var.ttf")
 
-[ ! -f "$WORKDIR/standby.ts" ] && { generate_standby || exit 1; }
+def load_font(path, size, weight=700):
+    try:
+        font = ImageFont.truetype(path, size)
+        axes = font.get_variation_axes()
+        if len(axes) == 1: font.set_variation_by_axes([weight])
+        elif len(axes) == 2: font.set_variation_by_axes([0, weight])
+        return font
+    except: return ImageFont.load_default()
 
-# ───────────────────────────────────────────────
-#  Process management
-# ───────────────────────────────────────────────
-OUT=""; PROD=""; KEEPER=""
-MODE="STANDBY"
-OFFLINE_START=0
-OUT_STARTED=0; PROD_STARTED=0
-OUT_PREV_FRAME=""; PROD_PREV_FRAME=""
-OUT_STALL=0; PROD_STALL=0
-LAST_SCAN=0
+img = Image.new("RGBA", (W, H), (0,0,0,0))
+d = ImageDraw.Draw(img)
+S = 50
+def br(cx, cy, fx, fy):
+    d.line([(cx,cy),(cx+S*fx,cy)], fill=(255,0,0,220), width=3)
+    d.line([(cx,cy),(cx,cy+S*fy)], fill=(255,0,0,220), width=3)
+br(24,24,1,1); br(W-24,24,-1,1); br(24,H-24,1,-1); br(W-24,H-24,-1,-1)
 
-stop_group() {
-    local pid="${1:-}"
-    [ -z "$pid" ] && return 0
-    kill -TERM -- "-$pid" 2>/dev/null || true
-    local i=0
-    while [ $i -lt 20 ]; do
-        kill -0 -- "-$pid" 2>/dev/null || { wait "$pid" 2>/dev/null || true; return 0; }
-        sleep 0.15; i=$((i+1))
-    done
-    kill -KILL -- "-$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-}
+y_next = 60
+try:
+    req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
+    logo = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=15).read())).convert("RGBA")
+    lw = 200; lh = int(logo.height * (lw/logo.width))
+    logo = logo.resize((lw, lh), Image.LANCZOS)
+    img.alpha_composite(logo, ((W-lw)//2, 60))
+    y_next = 60 + lh + 30
+except: pass
+d.text((W//2, y_next+30), ACCOUNT, font=load_font(FONT_EN, 52, 900),
+       fill=(255,255,255,255), anchor="mm")
 
-stop_output() {
-    [ -z "$OUT" ] && return 0
-    kill -TERM "$OUT" 2>/dev/null || true
-    local i=0
-    while [ $i -lt 20 ]; do
-        kill -0 "$OUT" 2>/dev/null || { wait "$OUT" 2>/dev/null || true; OUT=""; return 0; }
-        sleep 0.15; i=$((i+1))
-    done
-    kill -KILL "$OUT" 2>/dev/null || true
-    wait "$OUT" 2>/dev/null || true
-    OUT=""
-}
+bar_y, bar_h = H-200, 130
+bar = Image.new("RGBA", (W, bar_h), (0,0,0,0))
+bd = ImageDraw.Draw(bar)
+for x in range(W):
+    t = x / W
+    bd.line([(x,0),(x,bar_h)], fill=(int(15+25*t), 0, 0, 215))
+mask = Image.new("L", (W, bar_h), 0)
+ImageDraw.Draw(mask).rounded_rectangle([(0,0),(W-1,bar_h-1)], radius=20, fill=255)
+img.paste(bar, (0, bar_y), mask)
+d.rounded_rectangle([(0,bar_y),(W-1,bar_y+bar_h-1)], radius=20, outline=(255,0,0,180), width=3)
+d.text((90, bar_y+bar_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 54, 900),
+       fill=(255,255,255,255), anchor="lm", direction="rtl")
 
-stop_producer() { [ -n "$PROD" ] && { stop_group "$PROD"; PROD=""; }; }
-stop_keeper()   { [ -n "$KEEPER" ] && { stop_group "$KEEPER"; KEEPER=""; }; }
+img.save("/tmp/overlay.png")
+PYEOF
+    LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" python3 /tmp/make_overlay.py
+fi
 
-cleanup() {
-    trap - EXIT INT TERM
-    stop_producer; stop_output; stop_keeper
-    rm -f "$KEEPER_READY" "$FIFO"
-}
-trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
-
-setup_fifo() { rm -f "$FIFO" "$KEEPER_READY"; mkfifo "$FIFO"; }
-
-start_keeper() {
-    rm -f "$KEEPER_READY"
-    setsid bash -c 'exec 3>"$1" || exit 1; : > "$2"; exec sleep infinity' \
-        _ "$FIFO" "$KEEPER_READY" >/dev/null 2>&1 &
-    KEEPER=$!
-    local i=0
-    while [ $i -lt 100 ]; do
-        [ -f "$KEEPER_READY" ] && return 0
-        sleep 0.1; i=$((i+1))
-    done
-    return 1
-}
-
-get_frame() {
-    [ -f "$1" ] || return 0
-    tail -n 30 "$1" 2>/dev/null | awk -F= '$1=="frame" {v=$2} END {print v}'
-}
-
-start_output_with_retry() {
-    local max_attempts=10
-    local i=0
-    while [ $i -lt $max_attempts ]; do
-        i=$((i+1))
-        rm -f /tmp/out.prog
-        ffmpeg -y -hide_banner -loglevel warning -nostdin \
-            -thread_queue_size 512 \
-            -fflags +genpts+discardcorrupt \
-            -f mpegts -i "$FIFO" \
-            -map 0:v:0 -map 0:a:0? -c:v copy -c:a copy \
-            -max_muxing_queue_size 4096 \
-            -flvflags no_duration_filesize \
-            -rtmp_live live \
-            -progress /tmp/out.prog -stats_period 1 \
-            -f flv "$RESTREAM_URL" >/tmp/out.log 2>&1 &
-        OUT=$!
-        OUT_STARTED=$(date +%s)
-        OUT_PREV_FRAME=""; OUT_STALL=0
-        sleep 3
-        if kill -0 "$OUT" 2>/dev/null; then
-            echo "✅ Output connected"
-            return 0
-        fi
-        echo "⚠️ Output rejected, retry..."
-        wait "$OUT" 2>/dev/null || true
-        OUT=""
-        sleep 2
-    done
-    echo "❌ Output failed"
-    return 1
-}
-
-wait_prod_ready() {
-    local i=0
-    while [ $i -lt 50 ]; do
-        kill -0 "$PROD" 2>/dev/null || return 1
-        local f=$(get_frame /tmp/prod.prog)
-        [[ "$f" =~ ^[0-9]+$ ]] && [ "$f" -gt 0 ] && return 0
-        sleep 0.5; i=$((i+1))
-    done
-    return 1
-}
-
-start_prod_standby() {
-    rm -f /tmp/prod.prog
-    setsid ffmpeg -y -hide_banner -loglevel warning -nostdin \
-        -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
-        -c copy -mpegts_flags +resend_headers \
-        -progress /tmp/prod.prog -stats_period 1 \
-        -f mpegts "$FIFO" >/tmp/prod.log 2>&1 &
-    PROD=$!
-    PROD_STARTED=$(date +%s); PROD_PREV_FRAME=""; PROD_STALL=0
-    if wait_prod_ready; then
-        MODE="STANDBY"; echo "✅ STANDBY active"; return 0
-    fi
-    stop_producer
-    return 1
-}
-
-start_prod_live() {
-    rm -f /tmp/prod.prog
-    setsid bash -c '
-        streamlink --http-header "User-Agent='"$UA"'" "https://kick.com/'"$STREAMER_EN"'" best --stdout 2>/dev/null | \
-        ffmpeg -y -hide_banner -loglevel warning -nostdin \
-            -thread_queue_size 512 \
-            -fflags +genpts+discardcorrupt \
-            -i pipe:0 \
-            -c:v copy -c:a aac -b:a 160k -ar 44100 -ac 2 \
-            -mpegts_flags +resend_headers \
-            -progress /tmp/prod.prog -stats_period 1 \
-            -f mpegts "'"$FIFO"'" >/tmp/prod.log 2>&1
-    ' >/dev/null 2>&1 &
-    PROD=$!
-    PROD_STARTED=$(date +%s); PROD_PREV_FRAME=""; PROD_STALL=0
-    if wait_prod_ready; then
-        MODE="LIVE"; echo "✅ LIVE: $STREAMER_EN"; return 0
-    fi
-    stop_producer
-    return 1
-}
-
-is_streamer_live() {
-    URL=$(timeout 8 streamlink --http-header "User-Agent=$UA" \
-        "https://kick.com/$STREAMER_EN" best --stream-url 2>/dev/null | grep -m1 "^http")
-    [ -n "$URL" ] && return 0 || return 1
-}
-
-restart_output_chain() {
-    echo "♻️ Full chain restart"
-    stop_producer; stop_output; stop_keeper
-    setup_fifo
-    start_output_with_retry || { echo "❌ FATAL: cannot connect"; exit 1; }
-    start_keeper || { echo "❌ FATAL: keeper failed"; exit 1; }
-    
-    if is_streamer_live; then
-        OFFLINE_START=0
-        start_prod_live || start_prod_standby
+# ── 3) بناء المقطع الصوتي الدوري (مقطع + صمت حتى 360 ثانية) ──
+if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
+    if [ -n "$CLIP_URL" ]; then
+        echo "🎵 تحميل المقطع الصوتي..."
+        curl -sL --max-time 60 -A "Mozilla/5.0" "$CLIP_URL" -o "$WORKDIR/clip_src"
+        CLIP_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WORKDIR/clip_src" 2>/dev/null | cut -d. -f1)
+        CLIP_DUR=${CLIP_DUR:-10}
+        SIL=$(( CLIP_INTERVAL - CLIP_DUR ))
+        [ "$SIL" -lt 10 ] && SIL=10
+        echo "   مدة المقطع: ${CLIP_DUR}s — الصمت: ${SIL}s — الإجمالي: $((CLIP_DUR+SIL))s"
+        ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -t "$SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence.wav"
+        ffmpeg -y -hide_banner -loglevel error \
+            -i "$WORKDIR/clip_src" -i "$WORKDIR/silence.wav" \
+            -filter_complex "[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];\
+[1:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a1];[a0][a1]concat=n=2:v=0:a=1[out]" \
+            -map "[out]" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
+        echo "✅ المقطع الدوري جاهز كل $CLIP_INTERVAL ثانية"
     else
-        OFFLINE_START=$(date +%s)
-        start_prod_standby
+        ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -t "$CLIP_INTERVAL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
+        echo "ℹ️ لا يوجد CLIP_URL — سيتم تجاوز المقطع الصوتي"
     fi
-    LAST_SCAN=$(date +%s)
+fi
+
+# ── 4) تسليم/تسلّم مع الرنات القديمة ──
+echo "🔍 البحث عن رنات قديمة..."
+OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databaseId \
+           --jq '.[].databaseId' 2>/dev/null | awk -v m="$GITHUB_RUN_ID" '$1 != m')
+if [ -n "$OLD_RUNS" ]; then
+    echo "⚠️ رن قديم نشط: $OLD_RUNS"
+    for R in $OLD_RUNS; do timeout 10 gh run cancel "$R" 2>/dev/null || true; done
+    sleep 3
+else
+    echo "✅ لا يوجد رن قديم"
+fi
+
+# ── 5) دوال البث ──
+stream_live() {
+    echo "🔴 بث مباشر: $STREAMER (1080x1920 عمودي) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
+    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout 2>/dev/null | \
+    ffmpeg -hide_banner -loglevel warning -nostdin \
+        -thread_queue_size 512 \
+        -fflags +genpts+discardcorrupt \
+        -err_detect ignore_err \
+        -i pipe:0 \
+        -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
+        -i "$WORKDIR/overlay.png" \
+        -filter_complex "\
+[0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=bicubic[bg];\
+[0:v]scale=1080:-2[fg];\
+[bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
+[base][2:v]overlay=0:0[ov];\
+[ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='%{pts\\:hms}':fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
+[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
+[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
+[clip]asplit=2[clip_sc][clip_mix];\
+[game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
+[game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
+        -map "[outv]" -map "[outa]" \
+        -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 60 -r 30 \
+        -c:a aac -b:a 160k -ar 44100 -ac 2 \
+        -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+        -f flv "$RESTREAM_URL"
 }
 
-# ───────────────────────────────────────────────
-#  Schedule next run (5h15m from now)
-# ───────────────────────────────────────────────
-if [ -n "${MY_RUN_ID:-}" ] && [ -n "${GH_TOKEN:-}" ]; then
-    echo "📅 Scheduling next run in 5h15m"
-    setsid nohup bash -c "
-        sleep 18900
-        for i in 1 2 3 4 5; do
-            if gh workflow run main.yml --ref '${GITHUB_REF_NAME:-main}' -f parent_run_id=$MY_RUN_ID; then
-                echo \"✅ Next run dispatched\"
-                exit 0
-            fi
-            sleep 60
-        done
-    " >/tmp/sched.log 2>&1 < /dev/null &
-fi
+stream_standby() {
+    echo "⏳ إرسال شاشة الانتظار..."
+    ffmpeg -hide_banner -loglevel warning -nostdin \
+        -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
+        -c copy -f flv "$RESTREAM_URL"
+}
 
-# ───────────────────────────────────────────────
-#  Boot
-# ───────────────────────────────────────────────
-echo "🚀 Single Streamer Relay V13 starting..."
-setup_fifo
-start_output_with_retry || { echo "❌ FATAL: initial connect failed"; exit 1; }
-start_keeper || { echo "❌ FATAL: keeper failed"; exit 1; }
-
-if is_streamer_live; then
-    OFFLINE_START=0
-    start_prod_live || start_prod_standby
-else
-    OFFLINE_START=$(date +%s)
-    start_prod_standby
-fi
-LAST_SCAN=$(date +%s)
-
-# ───────────────────────────────────────────────
-#  Main loop (Watchdog + 20m Timeout)
-# ───────────────────────────────────────────────
+# ── 6) الحلقة الرئيسية ──
+echo "🚀 بدء المراقبة..."
 while true; do
-    NOW=$(date +%s)
-
-    if ! kill -0 "$OUT" 2>/dev/null; then
-        echo "⚠️ Output died"
-        restart_output_chain
-        continue
+    URL=$(timeout 10 streamlink --http-header "User-Agent=$UA" \
+          "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
+    if [ -n "$URL" ]; then
+        stream_live
+        echo "⚠️ انقطع البث. إعادة الفحص بعد 5 ثوانٍ..."
+        sleep 5
+    else
+        stream_standby
+        echo "⚠️ شاشة الانتظار انقطعت. إعادة الفحص..."
+        sleep 5
     fi
-
-    if ! kill -0 "$PROD" 2>/dev/null; then
-        echo "⚠️ Producer died"
-        stop_producer
-        if is_streamer_live; then
-            OFFLINE_START=0
-            start_prod_live || start_prod_standby
-        else
-            [ "$OFFLINE_START" -eq 0 ] && OFFLINE_START=$NOW
-            start_prod_standby
-        fi
-        continue
-    fi
-
-    # Watchdog: Output stall (Grace period 20s)
-    if [ $((NOW - OUT_STARTED)) -ge 20 ]; then
-        F=$(get_frame /tmp/out.prog)
-        MT=$(stat -c %Y /tmp/out.prog 2>/dev/null || echo $OUT_STARTED)
-        if [ $((NOW - MT)) -ge 20 ]; then OUT_STALL=20; 
-        elif [[ "$F" =~ ^[0-9]+$ ]]; then
-            if [ -n "$OUT_PREV_FRAME" ] && [ "$F" -le "$OUT_PREV_FRAME" ]; then OUT_STALL=$((OUT_STALL + 1)); else OUT_STALL=0; fi
-            OUT_PREV_FRAME="$F"
-        fi
-        if [ "$OUT_STALL" -ge 20 ]; then
-            echo "⚠️ Output stalled"
-            restart_output_chain
-            continue
-        fi
-    fi
-
-    # Watchdog: Producer stall (Grace period 15s)
-    if [ $((NOW - PROD_STARTED)) -ge 15 ]; then
-        F=$(get_frame /tmp/prod.prog)
-        MT=$(stat -c %Y /tmp/prod.prog 2>/dev/null || echo $PROD_STARTED)
-        if [ $((NOW - MT)) -ge 15 ]; then PROD_STALL=15;
-        elif [[ "$F" =~ ^[0-9]+$ ]]; then
-            if [ -n "$PROD_PREV_FRAME" ] && [ "$F" -le "$PROD_PREV_FRAME" ]; then PROD_STALL=$((PROD_STALL + 1)); else PROD_STALL=0; fi
-            PROD_PREV_FRAME="$F"
-        fi
-        if [ "$PROD_STALL" -ge 15 ]; then
-            echo "⚠️ Producer stalled"
-            stop_producer
-            if is_streamer_live; then OFFLINE_START=0; start_prod_live || start_prod_standby
-            else [ "$OFFLINE_START" -eq 0 ] && OFFLINE_START=$NOW; start_prod_standby; fi
-            continue
-        fi
-    fi
-
-    if [ $((NOW - LAST_SCAN)) -ge 15 ]; then
-        LAST_SCAN=$NOW
-        if is_streamer_live; then
-            OFFLINE_START=0
-            if [ "$MODE" != "LIVE" ]; then
-                echo "🔀 Streamer is LIVE. Switching from STANDBY."
-                stop_producer
-                start_prod_live || start_prod_standby
-            fi
-        else
-            if [ "$MODE" = "LIVE" ]; then
-                echo "📴 Streamer went OFFLINE. Switching to STANDBY."
-                stop_producer
-                start_prod_standby
-                OFFLINE_START=$NOW
-            fi
-            
-            if [ "$OFFLINE_START" -gt 0 ]; then
-                OFFLINE_DURATION=$((NOW - OFFLINE_START))
-                if [ "$OFFLINE_DURATION" -ge 1200 ]; then
-                    echo "🛑 Streamer offline for 20 minutes. Terminating job to save minutes."
-                    exit 0
-                fi
-            fi
-        fi
-    fi
-
-    sleep 1
 done
