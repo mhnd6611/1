@@ -12,7 +12,7 @@ LOGO_URL="https://cdn.imagetourls.com/uploads/tyImg/FoLz2RXV.png"
 ACCOUNT_NAME="Slayer_RT"
 CLIP_URL="https://www.image2url.com/r2/default/audio/1794504710389-f7679c92-16cb-475d-9cd8-c6e9796dbd69.mp3"
 CLIP_INTERVAL=360      # كل 6 دقائق
-CLIP_VOLUME=0.75       # مستوى صوت المقطع (اللعبة لا تتأثر)
+CLIP_VOLUME=0.75       # مستوى صوت المقطع
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 RESTREAM_KEY="${RESTREAM_KEY:-re_12552561_event81737fba9ada4713ab13ad7e04a36880}"
@@ -101,13 +101,14 @@ PYEOF
         -f mpegts "$WORKDIR/standby.ts"
 fi
 
-# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) ──
+# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) - تم إصلاح المسار ──
 if [ ! -f "$WORKDIR/overlay.png" ]; then
     echo "🎨 تصميم التراكب..."
     cat > /tmp/make_overlay.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFont
 import urllib.request, io, os
 W, H = 1080, 1920
+WORKDIR = os.environ["WORKDIR"]
 LOGO_URL = os.environ["LOGO_URL"]
 ACCOUNT = os.environ.get("ACCOUNT_NAME", "Slayer_RT")
 FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
@@ -155,29 +156,44 @@ d.rounded_rectangle([(0,bar_y),(W-1,bar_y+bar_h-1)], radius=20, outline=(255,0,0
 d.text((90, bar_y+bar_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 54, 900),
        fill=(255,255,255,255), anchor="lm", direction="rtl")
 
-img.save("/tmp/overlay.png")
+# حفظ في مجلد العمل الصحيح
+img.save(f"{WORKDIR}/overlay.png")
 PYEOF
-    LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" python3 /tmp/make_overlay.py
+    LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" WORKDIR="$WORKDIR" python3 /tmp/make_overlay.py
 fi
 
-# ── 3) بناء المقطع الصوتي الدوري (مقطع + صمت حتى 360 ثانية) ──
+# ── 3) بناء المقطع الصوتي الدوري (يبدأ بالثانية 45 ثم يتكرر كل 6 دقائق) ──
 if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
     if [ -n "$CLIP_URL" ]; then
         echo "🎵 تحميل المقطع الصوتي..."
         curl -sL --max-time 60 -A "Mozilla/5.0" "$CLIP_URL" -o "$WORKDIR/clip_src"
         CLIP_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$WORKDIR/clip_src" 2>/dev/null | cut -d. -f1)
         CLIP_DUR=${CLIP_DUR:-10}
-        SIL=$(( CLIP_INTERVAL - CLIP_DUR ))
-        [ "$SIL" -lt 10 ] && SIL=10
-        echo "   مدة المقطع: ${CLIP_DUR}s — الصمت: ${SIL}s — الإجمالي: $((CLIP_DUR+SIL))s"
+        
+        LEAD_SIL=45
+        TAIL_SIL=$(( CLIP_INTERVAL - LEAD_SIL - CLIP_DUR ))
+        [ "$TAIL_SIL" -lt 10 ] && TAIL_SIL=10
+        
+        echo "   مدة المقطع: ${CLIP_DUR}s — صمت مبدئي: ${LEAD_SIL}s — صمت نهائي: ${TAIL_SIL}s"
+        
+        # إنشاء صمت مبدئي (45 ثانية)
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-            -t "$SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence.wav"
+            -t "$LEAD_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_lead.wav"
+            
+        # إنشاء صمت نهائي (لتكملة الـ 360 ثانية)
+        ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+            -t "$TAIL_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_tail.wav"
+            
+        # دمج الصمت المبدئي + المقطع الصوتي + الصمت النهائي
         ffmpeg -y -hide_banner -loglevel error \
-            -i "$WORKDIR/clip_src" -i "$WORKDIR/silence.wav" \
-            -filter_complex "[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];\
-[1:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a1];[a0][a1]concat=n=2:v=0:a=1[out]" \
+            -i "$WORKDIR/silence_lead.wav" -i "$WORKDIR/clip_src" -i "$WORKDIR/silence_tail.wav" \
+            -filter_complex "[0:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a0];\
+[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];\
+[2:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a2];\
+[a0][a1][a2]concat=n=3:v=0:a=1[out]" \
             -map "[out]" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
-        echo "✅ المقطع الدوري جاهز كل $CLIP_INTERVAL ثانية"
+            
+        echo "✅ المقطع الدوري جاهز (يبدأ بالثانية 45 ثم يتكرر كل $CLIP_INTERVAL ثانية)"
     else
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$CLIP_INTERVAL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
