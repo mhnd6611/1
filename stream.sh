@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Stable Timer + Max Quality
+#  SXB Broadcast — Stable Max Quality
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -23,7 +23,7 @@ WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  بدء العداد الخلفي
+#  بدء العداد الخلفي (ثابت لا يتأثر بالانقطاع)
 # ═══════════════════════════════════════════════════
 echo "00:00:00" > "$WORKDIR/timer.txt"
 (
@@ -43,7 +43,6 @@ trap "kill $TIMER_PID" EXIT
 
 # ── 1) شاشة الانتظار ──
 if [ ! -f "$WORKDIR/standby.ts" ]; then
-    # ... (نفس كود البايثون لتصميم الشاشة والتراكب والصوت) ...
     echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -227,18 +226,17 @@ fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    echo "🔴 بث مباشر: $STREAMER (جودة عالية + الخلفية المموهة) — مقطع كل $CLIP_INTERVAL ث"
+    echo "🔴 بث مباشر: $STREAMER (مستقر + خلفية مموهة)"
     
-    # جلب الرابط المباشر أولاً
     LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
     [ -z "$LIVE_URL" ] && return 1
 
-    # استخدام الرابط مباشرة في ffmpeg (يمنع انهيار Bus error)
     ffmpeg -hide_banner -loglevel warning -stats -nostdin \
-        -thread_queue_size 512 \
+        -thread_queue_size 1024 \
         -fflags +genpts+discardcorrupt \
-        -err_detect ignore_err \
+        -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+        -analyzeduration 10M -probesize 10M \
         -i "$LIVE_URL" \
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
@@ -254,17 +252,17 @@ stream_live() {
 [game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
 [game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
         -map "[outv]" -map "[outa]" \
-        -c:v libx264 -preset fast -tune film -profile:v high -level 4.2 \
+        -c:v libx264 -preset fast -tune film -profile:v high -level 4.2 -threads 2 \
         -b:v 6000k -maxrate 6000k -bufsize 12000k \
         -pix_fmt yuv420p -g 60 -r 30 \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+        -max_muxing_queue_size 9999 -max_interleave_delta 0 \
+        -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL"
 }
 
 stream_standby() {
     echo "⏳ إرسال شاشة الانتظار..."
-    # غيرنا اللوق إلى error عشان ما يزعجك بتكرار السطور كل 4 ثواني
     ffmpeg -hide_banner -loglevel error -nostdin \
         -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
         -c copy -f flv "$RESTREAM_URL"
@@ -277,13 +275,13 @@ while true; do
     
     if [ -n "$LIVE_URL" ]; then
         stream_live
-        echo "⚠️ انقطع البث المباشر. محاولة الانتظار..."
+        echo "⚠️ انقطع البث المباشر. جاري التحضير للاتصال التالي..."
     else
+        echo "⚠️ البث غير متاح حالياً. إرسال شاشة الانتظار..."
         stream_standby
-        echo "⚠️ البث غير متاح. إرسال شاشة الانتظار..."
     fi
     
-    # انتظار 15 ثانية قبل المحاولة مرة charm (يمنع التكرار السريع)
-    echo "⏳ إعادة الفحص بعد 15 ثانية..."
-    sleep 15
+    # انتظار 5 ثواني قبل المحاولة التالية (عشان ما ينهار السيرفر)
+    echo "⏳ إعادة الفحص بعد 5 ثوانٍ..."
+    sleep 5
 done
