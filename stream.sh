@@ -15,6 +15,7 @@ CLIP_INTERVAL=360      # كل 6 دقائق
 CLIP_VOLUME=0.75       # مستوى صوت المقطع
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# تم تحديث المفتاح الجديد هنا
 RESTREAM_KEY="${RESTREAM_KEY:-re_12215822_event7443f45547114c8aaf6a9153b0da6831}"
 [ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح Restream فارغ"; exit 1; }
 
@@ -101,7 +102,7 @@ PYEOF
         -f mpegts "$WORKDIR/standby.ts"
 fi
 
-# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) - تم إصلاح المسار ──
+# ── 2) صورة التراكب (شعار + اسم + شريط سفلي) ──
 if [ ! -f "$WORKDIR/overlay.png" ]; then
     echo "🎨 تصميم التراكب..."
     cat > /tmp/make_overlay.py <<'PYEOF'
@@ -156,7 +157,6 @@ d.rounded_rectangle([(0,bar_y),(W-1,bar_y+bar_h-1)], radius=20, outline=(255,0,0
 d.text((90, bar_y+bar_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 54, 900),
        fill=(255,255,255,255), anchor="lm", direction="rtl")
 
-# حفظ في مجلد العمل الصحيح
 img.save(f"{WORKDIR}/overlay.png")
 PYEOF
     LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" WORKDIR="$WORKDIR" python3 /tmp/make_overlay.py
@@ -176,15 +176,12 @@ if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
         
         echo "   مدة المقطع: ${CLIP_DUR}s — صمت مبدئي: ${LEAD_SIL}s — صمت نهائي: ${TAIL_SIL}s"
         
-        # إنشاء صمت مبدئي (45 ثانية)
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$LEAD_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_lead.wav"
             
-        # إنشاء صمت نهائي (لتكملة الـ 360 ثانية)
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" \
             -t "$TAIL_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_tail.wav"
             
-        # دمج الصمت المبدئي + المقطع الصوتي + الصمت النهائي
         ffmpeg -y -hide_banner -loglevel error \
             -i "$WORKDIR/silence_lead.wav" -i "$WORKDIR/clip_src" -i "$WORKDIR/silence_tail.wav" \
             -filter_complex "[0:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a0];\
@@ -215,7 +212,7 @@ fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    echo "🔴 بث مباشر: $STREAMER (1080x1920 عمودي) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
+    echo "🔴 بث مباشر: $STREAMER (جودة محسنة) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
     streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout 2>/dev/null | \
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
@@ -226,7 +223,7 @@ stream_live() {
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
 [0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=bicubic[bg];\
-[0:v]scale=1080:-2[fg];\
+[0:v]scale='min(1080,iw)':-2[fg];\
 [bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
 [base][2:v]overlay=0:0[ov];\
 [ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='%{pts\\:hms}':fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
@@ -236,7 +233,9 @@ stream_live() {
 [game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
 [game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
         -map "[outv]" -map "[outa]" \
-        -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 60 -r 30 \
+        -c:v libx264 -preset veryfast -tune zerolatency \
+        -b:v 4500k -maxrate 5000k -bufsize 9000k \
+        -pix_fmt yuv420p -g 60 -r 30 \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL"
