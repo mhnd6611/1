@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Dynamic Layout + Slayer_RT
+#  SXB Broadcast — Stable Timer + Max Quality
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -21,6 +21,25 @@ RESTREAM_KEY="${RESTREAM_KEY:-re_12215822_event7443f45547114c8aaf6a9153b0da6831}
 RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
+
+# ═══════════════════════════════════════════════════
+#  بدء العداد الخلفي (لا يتوقف أبداً)
+# ═══════════════════════════════════════════════════
+echo "00:00:00" > "$WORKDIR/timer.txt"
+(
+    START_TIME=$(date +%s)
+    while true; do
+        NOW=$(date +%s)
+        DIFF=$((NOW - START_TIME))
+        H=$((DIFF / 3600))
+        M=$(((DIFF % 3600) / 60))
+        S=$((DIFF % 60))
+        printf "%02d:%02d:%02d" $H $M $S > "$WORKDIR/timer.txt"
+        sleep 1
+    done
+) &
+TIMER_PID=$!
+trap "kill $TIMER_PID" EXIT
 
 # ── 1) شاشة الانتظار ──
 if [ ! -f "$WORKDIR/standby.ts" ]; then
@@ -200,79 +219,41 @@ OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databas
 if [ -n "$OLD_RUNS" ]; then
     echo "⚠️ رن قديم نشط: $OLD_RUNS"
     for R in $OLD_RUNS; do timeout 10 gh run cancel "$R" 2>/dev/null || true; done
-    echo "⏳ انتظار 8 ثوانٍ لتحرير اتصال Restream..."
-    sleep 8 # زيادة وقت الانتظار لضمان قطع الاتصال القديم
+    sleep 8
 else
     echo "✅ لا يوجد رن قديم"
 fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    # جلب رابط البث المباشر
-    LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
-    [ -z "$LIVE_URL" ] && return 1
-
-    # فحص الأبعاد (استخدام default=noprint_wrappers لضمان قراءة صحيحة بدون فواصل غريبة)
-    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1:nokey=1 "$LIVE_URL" 2>/dev/null | tr '\n' 'x')
-    WIDTH=$(echo "$RES" | cut -d'x' -f1)
-    HEIGHT=$(echo "$RES" | cut -d'x' -f2)
-
-    # التحقق من أن القيم أرقام صحيحة (حماية إضافية)
-    if ! [[ "$WIDTH" =~ ^[0-9]+$ ]] || ! [[ "$HEIGHT" =~ ^[0-9]+$ ]]; then
-        WIDTH=1920
-        HEIGHT=1080
-    fi
-
-    echo "🔴 بث مباشر: $STREAMER — الأبعاد: ${WIDTH}x${HEIGHT} — مقطع كل $CLIP_INTERVAL ث"
-
-    if [ "$WIDTH" -gt "$HEIGHT" ]; then
-        # ═══ الوضع العرضي (Landscape) ═══
-        echo "📺 بث عرضي: سيتم عرض البث فقط بدون تراكبات."
-        ffmpeg -hide_banner -loglevel warning -stats -nostdin \
-            -thread_queue_size 512 -fflags +genpts+discardcorrupt -err_detect ignore_err \
-            -i "$LIVE_URL" \
-            -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
-            -filter_complex "\
-[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black[outv];\
-[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
-[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
-[clip]asplit=2[clip_sc][clip_mix];\
-[game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
-[game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
-            -map "[outv]" -map "[outa]" \
-            -c:v libx264 -preset faster -threads 0 \
-            -b:v 6000k -maxrate 6000k -bufsize 12000k \
-            -pix_fmt yuv420p -g 60 -r 30 \
-            -c:a aac -b:a 160k -ar 44100 -ac 2 \
-            -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
-            -f flv "$RESTREAM_URL"
-    else
-        # ═══ الوضع الطولي (Portrait) ═══
-        echo "📱 بث طولي: سيتم إضافة الشعار والعداد والخلفية السوداء."
-        ffmpeg -hide_banner -loglevel warning -stats -nostdin \
-            -thread_queue_size 512 -fflags +genpts+discardcorrupt -err_detect ignore_err \
-            -i "$LIVE_URL" \
-            -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
-            -i "$WORKDIR/overlay.png" \
-            -filter_complex "\
-color=c=black:s=1080x1920[bg];\
+    echo "🔴 بث مباشر: $STREAMER (جودة عالية + الخلفية المموهة) — مقطع كل $CLIP_INTERVAL ث"
+    
+    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout | \
+    ffmpeg -hide_banner -loglevel warning -stats -nostdin \
+        -thread_queue_size 512 \
+        -fflags +genpts+discardcorrupt \
+        -err_detect ignore_err \
+        -i pipe:0 \
+        -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
+        -i "$WORKDIR/overlay.png" \
+        -filter_complex "\
+[0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=bicubic[bg];\
 [0:v]scale=1080:-2:flags=lanczos[fg];\
 [bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
 [base][2:v]overlay=0:0[ov];\
-[ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='%{pts\\:hms}':fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
+[ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:textfile=$WORKDIR/timer.txt:reload=1:fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
 [0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
 [1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
 [clip]asplit=2[clip_sc][clip_mix];\
 [game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
 [game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
-            -map "[outv]" -map "[outa]" \
-            -c:v libx264 -preset faster -threads 0 \
-            -b:v 6000k -maxrate 6000k -bufsize 12000k \
-            -pix_fmt yuv420p -g 60 -r 30 \
-            -c:a aac -b:a 160k -ar 44100 -ac 2 \
-            -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
-            -f flv "$RESTREAM_URL"
-    fi
+        -map "[outv]" -map "[outa]" \
+        -c:v libx264 -preset fast -tune film -profile:v high -level 4.2 \
+        -b:v 6000k -maxrate 6000k -bufsize 12000k \
+        -pix_fmt yuv420p -g 60 -r 30 \
+        -c:a aac -b:a 160k -ar 44100 -ac 2 \
+        -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
+        -f flv "$RESTREAM_URL"
 }
 
 stream_standby() {
@@ -288,9 +269,9 @@ while true; do
     stream_live
     EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "⚠️ فشل الاتصال بالبث المباشر (كود $EXIT_CODE). محاولة إرسال شاشة الانتظار..."
+        echo "⚠️ فشل الاتصال. إرسال شاشة الانتظار..."
         stream_standby
     fi
     echo "⚠️ انقطع البث. إعادة الفحص بعد 10 ثوانٍ..."
-    sleep 10 # زيادة وقت الانتظار لتجنب حظر Restream
+    sleep 10
 done
