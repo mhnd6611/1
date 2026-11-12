@@ -12,10 +12,10 @@ LOGO_URL="https://cdn.imagetourls.com/uploads/tyImg/FoLz2RXV.png"
 ACCOUNT_NAME="Slayer_RT"
 CLIP_URL="https://www.image2url.com/r2/default/audio/1794504710389-f7679c92-16cb-475d-9cd8-c6e9796dbd69.mp3"
 CLIP_INTERVAL=360      # كل 6 دقائق
-CLIP_VOLUME=0.75       # مستوى صوت المقطع
+CLIP_VOLUME=0.65       # مستوى صوت المقطع
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-# تم تحديث المفتاح الجديد هنا
+# المفتاح الجديد
 RESTREAM_KEY="${RESTREAM_KEY:-re_12215822_event7443f45547114c8aaf6a9153b0da6831}"
 [ -z "$RESTREAM_KEY" ] && { echo "❌ مفتاح Restream فارغ"; exit 1; }
 
@@ -212,7 +212,7 @@ fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    echo "🔴 بث مباشر: $STREAMER (جودة محسنة) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
+    echo "🔴 بث مباشر: $STREAMER (جودة قصوى 1080p) — مقطع كل $CLIP_INTERVAL ث @ $CLIP_VOLUME"
     streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout 2>/dev/null | \
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 512 \
@@ -222,8 +222,8 @@ stream_live() {
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
-[0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=bicubic[bg];\
-[0:v]scale='min(1080,iw)':-2[fg];\
+[0:v]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=15:3,scale=1080:1920:flags=fast_bilinear[bg];\
+[0:v]scale=1080:-2[fg];\
 [bg][fg]overlay=(W-w)/2:(H-h)/2[base];\
 [base][2:v]overlay=0:0[ov];\
 [ov]drawtext=fontfile=$HOME/.fonts/Cairo-var.ttf:text='%{pts\\:hms}':fontsize=44:fontcolor=white:x=w-tw-120:y=h-165:box=1:boxcolor=0x000000@0.65:boxborderw=14[outv];\
@@ -233,8 +233,8 @@ stream_live() {
 [game][clip_sc]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=500[game_duck];\
 [game_duck][clip_mix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]" \
         -map "[outv]" -map "[outa]" \
-        -c:v libx264 -preset veryfast -tune zerolatency \
-        -b:v 4500k -maxrate 5000k -bufsize 9000k \
+        -c:v libx264 -preset faster -threads 0 \
+        -b:v 6000k -maxrate 6000k -bufsize 12000k \
         -pix_fmt yuv420p -g 60 -r 30 \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
         -max_muxing_queue_size 4096 -flvflags no_duration_filesize \
