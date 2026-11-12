@@ -200,25 +200,27 @@ OLD_RUNS=$(gh run list --workflow="main.yml" --status=in_progress --json databas
 if [ -n "$OLD_RUNS" ]; then
     echo "⚠️ رن قديم نشط: $OLD_RUNS"
     for R in $OLD_RUNS; do timeout 10 gh run cancel "$R" 2>/dev/null || true; done
-    sleep 3
+    echo "⏳ انتظار 8 ثوانٍ لتحرير اتصال Restream..."
+    sleep 8 # زيادة وقت الانتظار لضمان قطع الاتصال القديم
 else
     echo "✅ لا يوجد رن قديم"
 fi
 
 # ── 5) دوال البث ──
 stream_live() {
-    # جلب رابط البث المباشر أولاً عشان نفحص أبعاده
+    # جلب رابط البث المباشر
     LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
-    [ -z "$LIVE_URL" ] && return
+    [ -z "$LIVE_URL" ] && return 1
 
-    # فحص الأبعاد
-    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$LIVE_URL" 2>/dev/null)
-    WIDTH=$(echo $RES | cut -d'x' -f1)
-    HEIGHT=$(echo $RES | cut -d'x' -f2)
+    # فحص الأبعاد (استخدام default=noprint_wrappers لضمان قراءة صحيحة بدون فواصل غريبة)
+    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1:nokey=1 "$LIVE_URL" 2>/dev/null | tr '\n' 'x')
+    WIDTH=$(echo "$RES" | cut -d'x' -f1)
+    HEIGHT=$(echo "$RES" | cut -d'x' -f2)
 
-    if [ -z "$WIDTH" ]; then
-        # إذا فشل الفحص، نستخدم الوضع الطولي كافتراضي
-        WIDTH=1920; HEIGHT=1080
+    # التحقق من أن القيم أرقام صحيحة (حماية إضافية)
+    if ! [[ "$WIDTH" =~ ^[0-9]+$ ]] || ! [[ "$HEIGHT" =~ ^[0-9]+$ ]]; then
+        WIDTH=1920
+        HEIGHT=1080
     fi
 
     echo "🔴 بث مباشر: $STREAMER — الأبعاد: ${WIDTH}x${HEIGHT} — مقطع كل $CLIP_INTERVAL ث"
@@ -284,9 +286,11 @@ stream_standby() {
 echo "🚀 بدء المراقبة..."
 while true; do
     stream_live
-    if [ $? -ne 0 ]; then
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "⚠️ فشل الاتصال بالبث المباشر (كود $EXIT_CODE). محاولة إرسال شاشة الانتظار..."
         stream_standby
     fi
-    echo "⚠️ انقطع البث. إعادة الفحص بعد 5 ثوانٍ..."
-    sleep 5
+    echo "⚠️ انقطع البث. إعادة الفحص بعد 10 ثوانٍ..."
+    sleep 10 # زيادة وقت الانتظار لتجنب حظر Restream
 done
