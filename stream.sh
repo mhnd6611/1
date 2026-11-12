@@ -23,7 +23,7 @@ WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  بدء العداد الخلفي (لا يتوقف أبداً)
+#  بدء العداد الخلفي
 # ═══════════════════════════════════════════════════
 echo "00:00:00" > "$WORKDIR/timer.txt"
 (
@@ -43,6 +43,7 @@ trap "kill $TIMER_PID" EXIT
 
 # ── 1) شاشة الانتظار ──
 if [ ! -f "$WORKDIR/standby.ts" ]; then
+    # ... (نفس كود البايثون لتصميم الشاشة والتراكب والصوت) ...
     echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -228,12 +229,17 @@ fi
 stream_live() {
     echo "🔴 بث مباشر: $STREAMER (جودة عالية + الخلفية المموهة) — مقطع كل $CLIP_INTERVAL ث"
     
-    streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stdout | \
+    # جلب الرابط المباشر أولاً
+    LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
+    [ -z "$LIVE_URL" ] && return 1
+
+    # استخدام الرابط مباشرة في ffmpeg (يمنع انهيار Bus error)
     ffmpeg -hide_banner -loglevel warning -stats -nostdin \
         -thread_queue_size 512 \
         -fflags +genpts+discardcorrupt \
         -err_detect ignore_err \
-        -i pipe:0 \
+        -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+        -i "$LIVE_URL" \
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
@@ -258,7 +264,8 @@ stream_live() {
 
 stream_standby() {
     echo "⏳ إرسال شاشة الانتظار..."
-    ffmpeg -hide_banner -loglevel warning -nostdin \
+    # غيرنا اللوق إلى error عشان ما يزعجك بتكرار السطور كل 4 ثواني
+    ffmpeg -hide_banner -loglevel error -nostdin \
         -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
         -c copy -f flv "$RESTREAM_URL"
 }
@@ -266,12 +273,17 @@ stream_standby() {
 # ── 6) الحلقة الرئيسية ──
 echo "🚀 بدء المراقبة..."
 while true; do
-    stream_live
-    EXIT_CODE=$?
-    if [ $EXIT_CODE -ne 0 ]; then
-        echo "⚠️ فشل الاتصال. إرسال شاشة الانتظار..."
+    LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
+    
+    if [ -n "$LIVE_URL" ]; then
+        stream_live
+        echo "⚠️ انقطع البث المباشر. محاولة الانتظار..."
+    else
         stream_standby
+        echo "⚠️ البث غير متاح. إرسال شاشة الانتظار..."
     fi
-    echo "⚠️ انقطع البث. إعادة الفحص بعد 10 ثوانٍ..."
-    sleep 10
+    
+    # انتظار 15 ثانية قبل المحاولة مرة charm (يمنع التكرار السريع)
+    echo "⏳ إعادة الفحص بعد 15 ثانية..."
+    sleep 15
 done
