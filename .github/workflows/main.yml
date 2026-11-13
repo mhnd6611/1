@@ -51,17 +51,6 @@ jobs:
       - name: PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # ═══════════════════════════════════════════════════
-      #  زيادة الذاكرة الافتراضية (Swap) لمنع انهيار ffmpeg
-      # ═══════════════════════════════════════════════════
-      - name: Increase Swap Space
-        run: |
-          sudo fallocate -l 4G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          sudo swapon --show
-
       - name: جدولة الرن التالي (بعد 5س20د)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
