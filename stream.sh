@@ -1,9 +1,11 @@
 #!/bin/bash
 set +m
 
+# ═══════════════════════════════════════════════════
+#  SXB Broadcast — Clean & Stable (No Timer, No Crashes)
+# ═══════════════════════════════════════════════════
+
 STREAMER="SXB"
-TITLE_AR="توقف البث من شونق"
-SUBTITLE_AR="بث شونق سابثون 30 يوم!"
 LOGO_URL="https://cdn.imagetourls.com/uploads/tyImg/FoLz2RXV.png"
 ACCOUNT_NAME="Slayer_RT"
 CLIP_URL="https://www.image2url.com/r2/default/audio/1794504710389-f7679c92-16cb-475d-9cd8-c6e9796dbd69.mp3"
@@ -18,28 +20,9 @@ RESTREAM_URL="rtmp://live.restream.io/live/$RESTREAM_KEY"
 WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
 
-# ═══════════════════════════════════════════════════
-#  العداد الثابت (يشتغل بالخلفية)
-# ═══════════════════════════════════════════════════
-echo "00:00:00" > "$WORKDIR/timer.txt"
-(
-    START_TIME=$(date +%s)
-    while true; do
-        NOW=$(date +%s)
-        DIFF=$((NOW - START_TIME))
-        H=$((DIFF / 3600))
-        M=$(((DIFF % 3600) / 60))
-        S=$((DIFF % 60))
-        printf "%02d:%02d:%02d" $H $M $S > "$WORKDIR/timer.txt"
-        sleep 1
-    done
-) &
-TIMER_PID=$!
-trap "kill $TIMER_PID" EXIT
-
-# ── 1) تصميم واجهة المستخدم (الشعار، الاسم، شارة LIVE) 1:1 ──
+# ── 1) تصميم التراكب (الشعار والاسم وشارة LIVE) - صورة ثابتة ──
 if [ ! -f "$WORKDIR/overlay.png" ]; then
-    echo "🎨 تصميم التراكب (1:1) حسب طلبك..."
+    echo "🎨 تصميم التراكب الثابت..."
     cat > /tmp/make_overlay.py <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFont
 import urllib.request, io, os
@@ -84,6 +67,7 @@ x_badge = int(W * 0.50) - (badge_w // 2)
 y_badge = int(H * 0.90) - (badge_h // 2)
 d.rounded_rectangle([(x_badge, y_badge), (x_badge + badge_w, y_badge + badge_h)], radius=30, fill=(255, 0, 0, 200), outline=(255,255,255,100), width=2)
 d.text((x_badge + badge_w//2 + 15, y_badge + badge_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 32, 900), fill=(255,255,255,255), anchor="mm", direction="rtl")
+# النقطة البيضاء (بدون أنميشن، مجرد شكل ثابت)
 d.ellipse([(x_badge + 20, y_badge + 20), (x_badge + 40, y_badge + 40)], fill=(255,255,255,255))
 
 img.save(f"{WORKDIR}/overlay.png")
@@ -95,12 +79,12 @@ fi
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 import os
 W, H = 1080, 1080
 WORKDIR = os.environ["WORKDIR"]
 FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
-bg = Image.new("RGB", (W, H), (0, 2, 31))
+bg = Image.new("RGB", (W, H), (0, 2, 31)) # اللون الكحلي #00021f
 d = ImageDraw.Draw(bg)
 try:
     font = ImageFont.truetype(FONT_AR, 60)
@@ -140,9 +124,8 @@ stream_live() {
     LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
     [ -z "$LIVE_URL" ] && return 1
 
-    echo "🔴 جاري البث بتصميمك المخصص (1:1) وفلاتر الألوان..."
+    echo "🔴 جاري البث (بدون عداد، بدون أنميشن، جودة عالية)..."
 
-    # تم إزالة drawtext واستبداله بـ overlay للعداد لمنع تسرب الذاكرة
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
@@ -150,10 +133,8 @@ stream_live() {
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
-[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=0.2:contrast=1.21:saturation=1.63[base];\
-[base][2:v]overlay=0:0[ov];\
-[ov]drawbox=x=w*0.75:y=h*0.03:w=150:h=50:color=0x000000@0.5:t=fill[box];\
-[box]drawtext=fontfile=$HOME/.fonts/Orbitron-var.ttf:textfile=$WORKDIR/timer.txt:fontsize=45:fontcolor=white:x=w*0.75+10:y=h*0.03+5[outv];\
+[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=1.2:contrast=1.1:saturation=1.63[base];\
+[base][2:v]overlay=0:0[outv];\
 [0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
 [1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
 [clip]asplit=2[clip_sc][clip_mix];\
@@ -173,7 +154,7 @@ stream_standby() {
     ffmpeg -hide_banner -loglevel error -nostdin -re -stream_loop -1 -i "$WORKDIR/standby.ts" -c copy -f flv "$RESTREAM_URL"
 }
 
-# ── 6) الحلقة الرئيسية (صمود مطلق) ──
+# ── 6) الحلقة الرئيسية ──
 echo "🚀 بدء المراقبة..."
 while true; do
     stream_live
