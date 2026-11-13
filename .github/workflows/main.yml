@@ -31,17 +31,17 @@ jobs:
           # تحديث bounded
           timeout 180 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=120 update -qq
 
-          # تثبيت bounded + إعادة محاولة (ffmpeg يشمل ffprobe)
+          # تثبيت bounded + إعادة محاولة
           install_ok=0
           for attempt in 1 2 3; do
             if timeout 300 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends ffmpeg fontconfig libraqm0 libfribidi0; then
               install_ok=1
               break
             fi
-            echo "⚠️ محاولة ffmpeg $attempt فشلت/علّقت. إعادة محاولة بعد 5 ثوانٍ..."
+            echo "⚠️ محاولة ffmpeg $attempt فشلت. إعادة محاولة..."
             sleep 5
           done
-          [ "$install_ok" -eq 1 ] || { echo "❌ فشل تثبيت ffmpeg بعد 3 محاولات"; exit 1; }
+          [ "$install_ok" -eq 1 ] || { echo "❌ فشل تثبيت ffmpeg"; exit 1; }
 
           pip3 install --user --break-system-packages --quiet --upgrade Pillow streamlink
 
@@ -71,7 +71,7 @@ jobs:
             sleep 19200
             gh workflow run main.yml --ref '${{ github.ref_name }}'
           " >/tmp/sched.log 2>&1 < /dev/null &
-          echo "✅ تم جدولة الرن التالي بعد 19200 ثانية"
+          echo "✅ تم جدولة الرن التالي"
 
       - name: تشغيل البث مع التسليم والتسلّم
         env:
