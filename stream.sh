@@ -1,10 +1,6 @@
 #!/bin/bash
 set +m
 
-# ═══════════════════════════════════════════════════
-#  SXB Broadcast — Custom Design (Square 1:1) - Stable
-# ═══════════════════════════════════════════════════
-
 STREAMER="SXB"
 TITLE_AR="توقف البث من شونق"
 SUBTITLE_AR="بث شونق سابثون 30 يوم!"
@@ -66,10 +62,9 @@ def load_font(path, size, weight=700):
 img = Image.new("RGBA", (W, H), (0,0,0,0))
 d = ImageDraw.Draw(img)
 
-# 1. الشعار والاسم (فوق يسار - X: 3%, Y: 3%)
-x_brand = int(W * 0.03)  # 32px
-y_brand = int(H * 0.03)  # 32px
-
+# الشعار والاسم (فوق يسار)
+x_brand = int(W * 0.03)
+y_brand = int(H * 0.03)
 try:
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "Mozilla/5.0"})
     logo = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=15).read())).convert("RGBA")
@@ -81,22 +76,14 @@ try:
 except: 
     x_text = x_brand
     y_text = y_brand
+d.text((x_text, y_text), ACCOUNT, font=load_font(FONT_EN, 45, 900), fill=(255,255,255,255), anchor="lm")
 
-d.text((x_text, y_text), ACCOUNT, font=load_font(FONT_EN, 45, 900),
-       fill=(255,255,255,255), anchor="lm")
-
-# 2. شارة LIVE (تحت المنتصف - X: 50%, Y: 90%)
+# شارة LIVE (تحت المنتصف)
 badge_w, badge_h = 280, 60
 x_badge = int(W * 0.50) - (badge_w // 2)
 y_badge = int(H * 0.90) - (badge_h // 2)
-
-d.rounded_rectangle([(x_badge, y_badge), (x_badge + badge_w, y_badge + badge_h)], 
-                    radius=30, fill=(255, 0, 0, 200), outline=(255,255,255,100), width=2)
-
-d.text((x_badge + badge_w//2 + 15, y_badge + badge_h//2), "تغطية مباشرة", 
-       font=load_font(FONT_AR, 32, 900), fill=(255,255,255,255), anchor="mm", direction="rtl")
-
-# النقطة البيضاء
+d.rounded_rectangle([(x_badge, y_badge), (x_badge + badge_w, y_badge + badge_h)], radius=30, fill=(255, 0, 0, 200), outline=(255,255,255,100), width=2)
+d.text((x_badge + badge_w//2 + 15, y_badge + badge_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 32, 900), fill=(255,255,255,255), anchor="mm", direction="rtl")
 d.ellipse([(x_badge + 20, y_badge + 20), (x_badge + 40, y_badge + 40)], fill=(255,255,255,255))
 
 img.save(f"{WORKDIR}/overlay.png")
@@ -113,8 +100,7 @@ import os
 W, H = 1080, 1080
 WORKDIR = os.environ["WORKDIR"]
 FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
-
-bg = Image.new("RGB", (W, H), (0, 2, 31)) # لون الخلفية #00021f
+bg = Image.new("RGB", (W, H), (0, 2, 31))
 d = ImageDraw.Draw(bg)
 try:
     font = ImageFont.truetype(FONT_AR, 60)
@@ -123,11 +109,7 @@ except: pass
 bg.save(f"{WORKDIR}/bg.png")
 PYEOF
     WORKDIR="$WORKDIR" python3 /tmp/make_ui.py
-    ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" \
-        -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 2 \
-        -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 60 -r 30 \
-        -c:a aac -b:a 128k -ar 44100 -ac 2 -shortest \
-        -f mpegts "$WORKDIR/standby.ts"
+    ffmpeg -y -hide_banner -loglevel warning -loop 1 -framerate 30 -i "$WORKDIR/bg.png" -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 2 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 60 -r 30 -c:a aac -b:a 128k -ar 44100 -ac 2 -shortest -f mpegts "$WORKDIR/standby.ts"
 fi
 
 # ── 3) المقطع الصوتي ──
@@ -140,12 +122,9 @@ if [ ! -f "$WORKDIR/interval_audio.wav" ]; then
         LEAD_SIL=45
         TAIL_SIL=$(( CLIP_INTERVAL - LEAD_SIL - CLIP_DUR ))
         [ "$TAIL_SIL" -lt 10 ] && TAIL_SIL=10
-        
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" -t "$LEAD_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_lead.wav"
         ffmpeg -y -hide_banner -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" -t "$TAIL_SIL" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/silence_tail.wav"
-        ffmpeg -y -hide_banner -loglevel error -i "$WORKDIR/silence_lead.wav" -i "$WORKDIR/clip_src" -i "$WORKDIR/silence_tail.wav" \
-            -filter_complex "[0:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];[2:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a2];[a0][a1][a2]concat=n=3:v=0:a=1[out]" \
-            -map "[out]" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
+        ffmpeg -y -hide_banner -loglevel error -i "$WORKDIR/silence_lead.wav" -i "$WORKDIR/clip_src" -i "$WORKDIR/silence_tail.wav" -filter_complex "[0:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];[2:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a2];[a0][a1][a2]concat=n=3:v=0:a=1[out]" -map "[out]" -c:a pcm_s16le -ar 44100 -ac 2 "$WORKDIR/interval_audio.wav"
     fi
 fi
 
@@ -163,6 +142,7 @@ stream_live() {
 
     echo "🔴 جاري البث بتصميمك المخصص (1:1) وفلاتر الألوان..."
 
+    # تم إزالة drawtext واستبداله بـ overlay للعداد لمنع تسرب الذاكرة
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
@@ -172,7 +152,8 @@ stream_live() {
         -filter_complex "\
 [0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=0.2:contrast=1.21:saturation=1.63[base];\
 [base][2:v]overlay=0:0[ov];\
-[ov]drawtext=fontfile=$HOME/.fonts/Orbitron-var.ttf:textfile=$WORKDIR/timer.txt:reload=1:fontsize=45:fontcolor=white:x=w*0.75:y=h*0.03:box=1:boxcolor=0x000000@0.5:boxborderw=10[outv];\
+[ov]drawbox=x=w*0.75:y=h*0.03:w=150:h=50:color=0x000000@0.5:t=fill[box];\
+[box]drawtext=fontfile=$HOME/.fonts/Orbitron-var.ttf:textfile=$WORKDIR/timer.txt:fontsize=45:fontcolor=white:x=w*0.75+10:y=h*0.03+5[outv];\
 [0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
 [1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
 [clip]asplit=2[clip_sc][clip_mix];\
@@ -189,9 +170,7 @@ stream_live() {
 
 stream_standby() {
     echo "⏳ إرسال شاشة الانتظار..."
-    ffmpeg -hide_banner -loglevel error -nostdin \
-        -re -stream_loop -1 -i "$WORKDIR/standby.ts" \
-        -c copy -f flv "$RESTREAM_URL"
+    ffmpeg -hide_banner -loglevel error -nostdin -re -stream_loop -1 -i "$WORKDIR/standby.ts" -c copy -f flv "$RESTREAM_URL"
 }
 
 # ── 6) الحلقة الرئيسية (صمود مطلق) ──
