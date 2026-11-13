@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Clean & Stable (No Timer, No Crashes)
+#  SXB Broadcast — Clean, Stable & Color Corrected
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -67,7 +67,6 @@ x_badge = int(W * 0.50) - (badge_w // 2)
 y_badge = int(H * 0.90) - (badge_h // 2)
 d.rounded_rectangle([(x_badge, y_badge), (x_badge + badge_w, y_badge + badge_h)], radius=30, fill=(255, 0, 0, 200), outline=(255,255,255,100), width=2)
 d.text((x_badge + badge_w//2 + 15, y_badge + badge_h//2), "تغطية مباشرة", font=load_font(FONT_AR, 32, 900), fill=(255,255,255,255), anchor="mm", direction="rtl")
-# النقطة البيضاء (بدون أنميشن، مجرد شكل ثابت)
 d.ellipse([(x_badge + 20, y_badge + 20), (x_badge + 40, y_badge + 40)], fill=(255,255,255,255))
 
 img.save(f"{WORKDIR}/overlay.png")
@@ -84,7 +83,7 @@ import os
 W, H = 1080, 1080
 WORKDIR = os.environ["WORKDIR"]
 FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
-bg = Image.new("RGB", (W, H), (0, 2, 31)) # اللون الكحلي #00021f
+bg = Image.new("RGB", (W, H), (0, 2, 31))
 d = ImageDraw.Draw(bg)
 try:
     font = ImageFont.truetype(FONT_AR, 60)
@@ -124,8 +123,9 @@ stream_live() {
     LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
     [ -z "$LIVE_URL" ] && return 1
 
-    echo "🔴 جاري البث (بدون عداد، بدون أنميشن، جودة عالية)..."
+    echo "🔴 جاري البث (السطوع 120، التباين 120، التشبع 105، الحدة 130)..."
 
+    # هنا تم تعديل الفلاتر لتطابق طلبك بالضبط
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
@@ -133,7 +133,7 @@ stream_live() {
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
-[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=1.2:contrast=1.1:saturation=1.63[base];\
+[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=0.05:contrast=1.2:saturation=1.05,unsharp=5:5:1.3:5:5:0.0[base];\
 [base][2:v]overlay=0:0[outv];\
 [0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
 [1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
