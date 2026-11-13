@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Custom Design (Square 1:1)
+#  SXB Broadcast — Custom Design (Square 1:1) - Stable
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -23,7 +23,7 @@ WORKDIR="/tmp/standby_sxb"
 mkdir -p "$WORKDIR"
 
 # ═══════════════════════════════════════════════════
-#  العداد الثابت
+#  العداد الثابت (يشتغل بالخلفية)
 # ═══════════════════════════════════════════════════
 echo "00:00:00" > "$WORKDIR/timer.txt"
 (
@@ -86,7 +86,6 @@ d.text((x_text, y_text), ACCOUNT, font=load_font(FONT_EN, 45, 900),
        fill=(255,255,255,255), anchor="lm")
 
 # 2. شارة LIVE (تحت المنتصف - X: 50%, Y: 90%)
-# نرسم مستطيل أحمر بحواف دائرية
 badge_w, badge_h = 280, 60
 x_badge = int(W * 0.50) - (badge_w // 2)
 y_badge = int(H * 0.90) - (badge_h // 2)
@@ -94,7 +93,6 @@ y_badge = int(H * 0.90) - (badge_h // 2)
 d.rounded_rectangle([(x_badge, y_badge), (x_badge + badge_w, y_badge + badge_h)], 
                     radius=30, fill=(255, 0, 0, 200), outline=(255,255,255,100), width=2)
 
-# نص "تغطية مباشرة"
 d.text((x_badge + badge_w//2 + 15, y_badge + badge_h//2), "تغطية مباشرة", 
        font=load_font(FONT_AR, 32, 900), fill=(255,255,255,255), anchor="mm", direction="rtl")
 
@@ -106,7 +104,7 @@ PYEOF
     LOGO_URL="$LOGO_URL" ACCOUNT_NAME="$ACCOUNT_NAME" WORKDIR="$WORKDIR" python3 /tmp/make_overlay.py
 fi
 
-# ── 2) شاشة الانتظار (خلفية كحلية) ──
+# ── 2) شاشة الانتظار ──
 if [ ! -f "$WORKDIR/standby.ts" ]; then
     echo "🎨 تصميم شاشة الانتظار..."
     cat > /tmp/make_ui.py <<'PYEOF'
@@ -116,7 +114,7 @@ W, H = 1080, 1080
 WORKDIR = os.environ["WORKDIR"]
 FONT_AR = os.path.expanduser("~/.fonts/Cairo-var.ttf")
 
-bg = Image.new("RGB", (W, H), (0, 2, 31)) # نفس لون الخلفية اللي اخترته #00021f
+bg = Image.new("RGB", (W, H), (0, 2, 31)) # لون الخلفية #00021f
 d = ImageDraw.Draw(bg)
 try:
     font = ImageFont.truetype(FONT_AR, 60)
@@ -165,9 +163,8 @@ stream_live() {
 
     echo "🔴 جاري البث بتصميمك المخصص (1:1) وفلاتر الألوان..."
 
-    # تطبيق كل شي مرة واحدة: المقاس المربع + لون #00021f + الفلاتر اللي طلبتها (سطوع، تباين، تشبع) + التراكب + العداد
-    ffmpeg -hide_banner -loglevel warning -stats -nostdin \
-        -thread_queue_size 512 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
+    ffmpeg -hide_banner -loglevel warning -nostdin \
+        -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
         -i "$LIVE_URL" \
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
@@ -186,7 +183,7 @@ stream_live() {
         -b:v 5000k -maxrate 5000k -bufsize 10000k \
         -pix_fmt yuv420p -g 60 -r 30 \
         -c:a aac -b:a 160k -ar 44100 -ac 2 \
-        -max_muxing_queue_size 9999 -flvflags no_duration_filesize \
+        -max_muxing_queue_size 512 -flvflags no_duration_filesize \
         -f flv "$RESTREAM_URL"
 }
 
