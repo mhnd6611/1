@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Clean, Stable & Color Corrected
+#  SXB Broadcast — Stable & Self-Healing
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -120,12 +120,12 @@ fi
 
 # ── 5) دالة البث المباشر ──
 stream_live() {
-    LIVE_URL=$(timeout 15 streamlink --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
+    # إضافة الخيار --hls-segment-queue-threshold=0 لجعل streamlink أكثر مقاومة للانقطاعات
+    LIVE_URL=$(timeout 15 streamlink --hls-segment-queue-threshold=0 --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
     [ -z "$LIVE_URL" ] && return 1
 
     echo "🔴 جاري البث (السطوع 120، التباين 120، التشبع 105، الحدة 130)..."
 
-    # هنا تم تعديل الفلاتر لتطابق طلبك بالضبط
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
