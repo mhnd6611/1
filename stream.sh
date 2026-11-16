@@ -2,7 +2,7 @@
 set +m
 
 # ═══════════════════════════════════════════════════
-#  SXB Broadcast — Stable & Self-Healing
+#  SXB Broadcast — Custom Colors & Stable
 # ═══════════════════════════════════════════════════
 
 STREAMER="SXB"
@@ -124,8 +124,9 @@ stream_live() {
     LIVE_URL=$(timeout 15 streamlink --hls-segment-queue-threshold=0 --http-header "User-Agent=$UA" "https://kick.com/$STREAMER" best --stream-url 2>/dev/null | grep -m1 "^http")
     [ -z "$LIVE_URL" ] && return 1
 
-    echo "🔴 جاري البث (السطوع 120، التباين 120، التشبع 105، الحدة 130)..."
+    echo "🔴 جاري البث (السطوع +15، التباين +8، التشبع +10، الحدة 150)..."
 
+    # هنا تم تعديل الأرقام بناءً على طلبك الجديد
     ffmpeg -hide_banner -loglevel warning -nostdin \
         -thread_queue_size 256 -fflags +genpts+discardcorrupt -err_detect +crccheck+bitstream+buffer \
         -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
@@ -133,7 +134,7 @@ stream_live() {
         -stream_loop -1 -i "$WORKDIR/interval_audio.wav" \
         -i "$WORKDIR/overlay.png" \
         -filter_complex "\
-[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=0.05:contrast=1.2:saturation=1.05,unsharp=5:5:1.3:5:5:0.0[base];\
+[0:v]scale=1080:-2,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:color=0x00021f,eq=brightness=0.08:contrast=1.08:saturation=1.1,unsharp=5:5:1.5:5:5:0.0[base];\
 [base][2:v]overlay=0:0[outv];\
 [0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[game];\
 [1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${CLIP_VOLUME}[clip];\
